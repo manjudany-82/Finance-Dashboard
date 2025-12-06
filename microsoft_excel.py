@@ -2,6 +2,8 @@ import pandas as pd
 import os
 import requests
 from io import BytesIO
+import warnings
+warnings.filterwarnings('ignore')
 
 class ExcelHandler:
     """
