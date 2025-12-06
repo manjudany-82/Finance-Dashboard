@@ -11,19 +11,30 @@ class AIAnalyst:
     
     def __init__(self):
         self.api_key = os.getenv('GEMINI_API_KEY')
+        self.model = None
         if self.api_key:
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
-        else:
-            self.model = None
-            print("WARNING: GEMINI_API_KEY not found. AI insights will be disabled.")
+            try:
+                # Try the latest standard model first
+                self.model = genai.GenerativeModel('gemini-1.5-flash')
+            except Exception as e:
+                print(f"Error init model: {e}")
+                
+        if not self.model:
+            print("WARNING: AI model failed to initialize.")
 
     def get_insights(self, mode, data_summary):
         """
         Generates 3 bullet points of insights based on the mode and data.
         """
         if not self.model:
-            return ["AI Insights disabled (Missing API Key)", "Please add GEMINI_API_KEY to .env", "Using mock insights for now."]
+            # Try to list available models for debugging
+            try:
+                models = [m.name for m in genai.list_models()]
+                debug_msg = f"Available: {', '.join(models)[:50]}..."
+            except:
+                debug_msg = "Could not list models"
+            return ["AI Model Error", "API Key Valid but Model Not Found", debug_msg]
 
         prompt = f"""
         You are a financial controller analyzing a company's data.
