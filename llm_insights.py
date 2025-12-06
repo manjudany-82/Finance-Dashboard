@@ -24,38 +24,44 @@ class AIAnalyst:
             print("WARNING: AI model failed to initialize.")
 
     def get_insights(self, mode, data_summary):
-        """
-        Generates 3 bullet points of insights based on the mode and data.
-        """
-        if not self.model:
-            # Try to list available models for debugging
-            try:
-                models = [m.name for m in genai.list_models()]
-                debug_msg = f"Available: {', '.join(models)[:50]}..."
-            except:
-                debug_msg = "Could not list models"
-            return ["AI Model Error", "API Key Valid but Model Not Found", debug_msg]
+        if not self.api_key:
+             return ["AI Insights disabled (Missing API Key)", "Please add GEMINI_API_KEY to .env", "Using mock insights for now."]
+
+        # Candidates to try
+        candidates = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-pro', 'gemini-1.0-pro']
+        
+        # Diagnostic: Log available models to console
+        try:
+            print("--- DIAGNOSTIC: Available Models ---")
+            for m in genai.list_models():
+                print(f"Model: {m.name}")
+            print("------------------------------------")
+        except Exception as e:
+             print(f"Could not list models: {e}")
 
         prompt = f"""
         You are a financial controller analyzing a company's data.
         MODE: {mode}
         DATA SUMMARY:
         {data_summary}
-
-        TASK: Provide exactly 3 short, actionable, punchy bullet points (max 10 words each). 
-        Focus on risks, opportunities, or anomalies.
+        TASK: Provide exactly 3 short, actionable, punchy bullet points.
         OUTPUT FORMAT:
         - Insight 1
         - Insight 2
         - Insight 3
         """
-        
-        try:
-            response = self.model.generate_content(prompt)
-            return [line.strip().replace('- ', '') for line in response.text.split('\n') if line.strip().startswith('-')]
-        except Exception as e:
-            print(f"LLM Error: {e}")
-            return [f"AI Error: {str(e)[:20]}...", "Check GEMINI_API_KEY in Secrets", "Or wait 1 minute & refresh"]
+
+        for model_name in candidates:
+            try:
+                print(f"Attempting with model: {model_name}")
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                return [line.strip().replace('- ', '') for line in response.text.split('\n') if line.strip().startswith('-')]
+            except Exception as e:
+                print(f"Failed with {model_name}: {e}")
+                continue
+
+        return ["AI Connection Failed", "No compatible Gemini models found", "Check logs for 'Available Models'"]
 
     @staticmethod
     def generate_fallback_insights(mode, data):
