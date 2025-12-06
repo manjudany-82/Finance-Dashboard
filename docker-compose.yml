@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  financial-dashboard:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    volumes:
+      - ./:/app
+    command: streamlit run dashboard.py --server.port 8501 --server.address 0.0.0.0
