@@ -2,17 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-print("DEBUG: Attempting to import microsoft_excel...")
-try:
-    import microsoft_excel
-    from microsoft_excel import ExcelHandler
-    print("DEBUG: Validating microsoft_excel module...")
-except ImportError as e:
-    print(f"DEBUG: Import failed: {e}")
-    raise e
-except Exception as e:
-    print(f"DEBUG: Unexpected error during import: {e}")
-    raise e
+from microsoft_excel import ExcelHandler
 from analysis_modes import FinancialAnalyzer
 from forecast_engine import ForecastEngine
 from llm_insights import AIAnalyst

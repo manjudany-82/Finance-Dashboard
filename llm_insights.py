@@ -27,18 +27,9 @@ class AIAnalyst:
         if not self.api_key:
              return ["AI Insights disabled (Missing API Key)", "Please add GEMINI_API_KEY to .env", "Using mock insights for now."]
 
-        # Candidates to try
-        candidates = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-pro', 'gemini-1.0-pro']
+        # Candidates confirmed from environment logs
+        candidates = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-pro-latest']
         
-        # Diagnostic: Log available models to console
-        try:
-            print("--- DIAGNOSTIC: Available Models ---")
-            for m in genai.list_models():
-                print(f"Model: {m.name}")
-            print("------------------------------------")
-        except Exception as e:
-             print(f"Could not list models: {e}")
-
         prompt = f"""
         You are a financial controller analyzing a company's data.
         MODE: {mode}
@@ -53,15 +44,15 @@ class AIAnalyst:
 
         for model_name in candidates:
             try:
-                print(f"Attempting with model: {model_name}")
+                # print(f"Attempting with model: {model_name}") 
                 model = genai.GenerativeModel(model_name)
                 response = model.generate_content(prompt)
                 return [line.strip().replace('- ', '') for line in response.text.split('\n') if line.strip().startswith('-')]
             except Exception as e:
-                print(f"Failed with {model_name}: {e}")
+                # print(f"Failed with {model_name}: {e}")
                 continue
 
-        return ["AI Connection Failed", "No compatible Gemini models found", "Check logs for 'Available Models'"]
+        return ["AI Connection Failed", "No compatible Gemini models found", "Please check API Quota"]
 
     @staticmethod
     def generate_fallback_insights(mode, data):
