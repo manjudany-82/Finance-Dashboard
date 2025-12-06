@@ -44,7 +44,7 @@ class AIAnalyst:
             return [line.strip().replace('- ', '') for line in response.text.split('\n') if line.strip().startswith('-')]
         except Exception as e:
             print(f"LLM Error: {e}")
-            return ["Error connecting to AI", "Check API Quota", "Try again later"]
+            return [f"AI Error: {str(e)[:20]}...", "Check GEMINI_API_KEY in Secrets", "Or wait 1 minute & refresh"]
 
     @staticmethod
     def generate_fallback_insights(mode, data):

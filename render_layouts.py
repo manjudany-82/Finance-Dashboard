@@ -43,9 +43,11 @@ def render_overview(dfs, ai):
                       color_discrete_sequence=['#00CC96'])
          
          fig.update_layout(
+             height=350,  # Explicit height to prevent squashing
              xaxis_title="", 
              yaxis_title="", 
              template="plotly_dark",
+             margin=dict(l=0, r=0, t=20, b=20),
              xaxis=dict(
                  tickformat="%b %Y",
                  tickmode="linear",
