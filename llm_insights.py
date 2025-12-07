@@ -54,28 +54,31 @@ class AIAnalyst:
         - Insight 3
         """
 
+        last_error = None
         for model_name in candidates:
             try:
                 # Throttle requests to avoid 429 Rate Limit
-                # Increased to 2.0s to ensure "Free Tier" limits are respected
                 time.sleep(2.0) 
                 
                 # Use the CACHED function
-                # We pass api_key to ensure cache invalidates if key changes (rare but good practice)
                 return cached_generate_content(self.api_key, model_name, prompt)
 
             except Exception as e:
+                last_error = e
                 error_str = str(e)
+                print(f"Error on {model_name}: {error_str}")
                 if "429" in error_str or "Quota" in error_str or "Resource" in error_str:
-                    print(f"Rate Limit Hit on {model_name} - Switching to Fallback")
-                    # Fallback to offline insights immediately to prevent user error
-                    fallback = self.generate_fallback_insights(mode, data)
-                    # Add a small indicator that this is offline data
-                    return [f"⚡ {f}" for f in fallback]
+                     # If Rate Limit, we want to try others, but eventually fallback
+                     pass
                 continue
 
         # Final fallback if all models fail
-        return [f"⚡ {f}" for f in self.generate_fallback_insights(mode, data)]
+        # DEBUG: Show the error to the user
+        fallback = self.generate_fallback_insights(mode, data)
+        error_msg = f"⚠️ Err: {str(last_error)[:40]}" if last_error else "Unknown Error"
+        
+        # Return Error + Fallback
+        return [error_msg] + [f"⚡ {f}" for f in fallback[:2]]
 
     @staticmethod
     def generate_fallback_insights(mode, data):
