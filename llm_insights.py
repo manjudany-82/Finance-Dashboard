@@ -1,4 +1,5 @@
 import os
+import time
 import google.generativeai as genai
 from dotenv import load_dotenv
 
@@ -44,11 +45,21 @@ class AIAnalyst:
 
         for model_name in candidates:
             try:
-                # print(f"Attempting with model: {model_name}") 
+                # Throttle requests to avoid 429 Rate Limit
+                time.sleep(1.0) 
+                
                 model = genai.GenerativeModel(model_name)
                 response = model.generate_content(prompt)
                 return [line.strip().replace('- ', '') for line in response.text.split('\n') if line.strip().startswith('-')]
             except Exception as e:
+                error_str = str(e)
+                if "429" in error_str or "Quota" in error_str or "Resource" in error_str:
+                    print(f"Rate Limit Hit on {model_name}")
+                    # If we hit rate limit, waiting might help, or just fail gracefully to fallback
+                    # We return a specific message so the loop breaks early or notifies user?
+                    # Actually better to just return the specific error immediately so we don't hammer the API more.
+                    return ["⚠️ Traffic Limiter Active", "The AI is thinking too fast...", "Please wait 10s and refresh"]
+                
                 # print(f"Failed with {model_name}: {e}")
                 continue
 
