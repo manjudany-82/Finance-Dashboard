@@ -2,8 +2,19 @@ import os
 import time
 import google.generativeai as genai
 from dotenv import load_dotenv
+import streamlit as st
 
 load_dotenv()
+
+# Cached function to store successful AI responses
+# TTL=3600 (1 hour) means it stays in memory for 60 mins.
+# If it fails, it won't cache the failure, so it retries next time.
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_generate_content(api_key, model_name, prompt):
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name)
+    response = model.generate_content(prompt)
+    return [line.strip().replace('- ', '') for line in response.text.split('\n') if line.strip().startswith('-')]
 
 class AIAnalyst:
     """
@@ -14,9 +25,9 @@ class AIAnalyst:
         self.api_key = os.getenv('GEMINI_API_KEY')
         self.model = None
         if self.api_key:
-            genai.configure(api_key=self.api_key)
             try:
                 # Try the latest standard model first
+                genai.configure(api_key=self.api_key)
                 self.model = genai.GenerativeModel('gemini-1.5-flash')
             except Exception as e:
                 print(f"Error init model: {e}")
@@ -46,11 +57,24 @@ class AIAnalyst:
         for model_name in candidates:
             try:
                 # Throttle requests to avoid 429 Rate Limit
-                time.sleep(2.0) 
+                # Reduced to 1.0s because we now have Caching!
+                # If cached, this sleep is skipped entirely by the cached function wrapper if I moved sleep inside.
+                # But sleep is outside. So first hit waits 1s. Subsequent hits wait 1s but get instant result.
+                # Actually, if I want instant result on cache, I should check cache first?
+                # No, st.cache_data handles that.
+                # Wait, if I sleep BEFORE calling cached function, I always sleep.
+                # I should move sleep INSIDE cached function? No, then it sleeps every time it runs (uncached).
+                # But if it IS cached, the function body (including sleep) is skipped? 
+                # Yes! If I put sleep inside cached_generate_content, then cached calls are instant.
+                # But I can't put sleep there easily because I loop over candidates OUTSIDE.
                 
-                model = genai.GenerativeModel(model_name)
-                response = model.generate_content(prompt)
-                return [line.strip().replace('- ', '') for line in response.text.split('\n') if line.strip().startswith('-')]
+                # Compromise: precise sleep here. 
+                time.sleep(1.0) 
+                
+                # Use the CACHED function
+                # We pass api_key to ensure cache invalidates if key changes (rare but good practice)
+                return cached_generate_content(self.api_key, model_name, prompt)
+
             except Exception as e:
                 error_str = str(e)
                 if "429" in error_str or "Quota" in error_str or "Resource" in error_str:
@@ -63,8 +87,6 @@ class AIAnalyst:
 
         # Final fallback if all models fail
         return [f"⚡ {f}" for f in self.generate_fallback_insights(mode, data)]
-
-        return ["AI Connection Failed", "No compatible Gemini models found", "Please check API Quota"]
 
     @staticmethod
     def generate_fallback_insights(mode, data):
