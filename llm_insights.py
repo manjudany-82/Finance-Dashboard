@@ -39,8 +39,8 @@ class AIAnalyst:
         if not self.api_key:
              return self.generate_fallback_insights(mode, data)
 
-        # Candidates: Fallback to legacy 'gemini-pro' if 1.5 is unavailable
-        candidates = ['gemini-1.5-flash', 'gemini-pro', 'gemini-1.0-pro-latest']
+        # Candidates: Verified available models from user environment
+        candidates = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash-exp']
         
         prompt = f"""
         You are a financial controller analyzing a company's data.
@@ -54,7 +54,6 @@ class AIAnalyst:
         - Insight 3
         """
 
-        last_error = None
         for model_name in candidates:
             try:
                 # Throttle requests to avoid 429 Rate Limit
@@ -64,28 +63,12 @@ class AIAnalyst:
                 return cached_generate_content(self.api_key, model_name, prompt)
 
             except Exception as e:
-                last_error = e
-                error_str = str(e)
-                print(f"Error on {model_name}: {error_str}")
-                if "429" in error_str or "Quota" in error_str or "Resource" in error_str:
-                     # If Rate Limit, we want to try others, but eventually fallback
-                     pass
+                # If Rate Limit or other error, try next candidate
+                print(f"Error on {model_name}: {e}")
                 continue
 
         # Final fallback if all models fail
-        # DEBUG: Show the error to the user AND List Models
-        fallback = self.generate_fallback_insights(mode, data)
-        
-        try:
-            # Attempt to list available models to debug the 404
-            available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            model_list_str = ", ".join([m.replace('models/', '') for m in available[:3]]) # Show first 3
-            error_msg = f"⚠️ Models Found: {model_list_str}"
-        except Exception as list_err:
-            error_msg = f"⚠️ Err: {str(last_error)[:40]}" if last_error else "Unknown Error"
-        
-        # Return Error + Fallback
-        return [error_msg] + [f"⚡ {f}" for f in fallback[:2]]
+        return [f"⚡ {f}" for f in self.generate_fallback_insights(mode, data)]
 
     @staticmethod
     def generate_fallback_insights(mode, data):
