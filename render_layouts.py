@@ -5,7 +5,82 @@ import plotly.express as px
 from analysis_modes import FinancialAnalyzer
 from forecast_engine import ForecastEngine
 
-def render_overview(dfs, ai):
+# Toggle AI insights display
+ENABLE_AI_INSIGHTS = False
+
+# Global cache for batched AI insights keyed by dataset timestamp and enable flag
+_global_insight_cache = {
+    'ts': None,       # data_loaded_at timestamp
+    'enabled': None,  # ai_enabled flag
+    'data': None      # cached insights dict
+}
+
+
+def _get_batched_insights(ai, dfs, ai_enabled=True):
+    """Collect data for all sections and retrieve batched insights.
+
+    Caches results per data load timestamp stored in `st.session_state['data_loaded_at']`
+    and per `ai_enabled` flag so insights are invalidated when the user loads new data
+    or toggles AI on/off.
+    """
+    # If AI disabled, return rule-based fallback for each section
+    if not ai_enabled:
+        insight_requests = {
+            "Overview": FinancialAnalyzer.analyze_overview(dfs),
+            "Sales Trends": FinancialAnalyzer.analyze_sales(dfs),
+            "AR Collections": FinancialAnalyzer.analyze_ar(dfs),
+            "AP Management": FinancialAnalyzer.analyze_ap(dfs),
+            "Cash Flow": FinancialAnalyzer.analyze_cash(dfs),
+            "Profitability": FinancialAnalyzer.analyze_profit(dfs),
+            "Forecast": FinancialAnalyzer.analyze_forecast(dfs),
+            "Spending": FinancialAnalyzer.analyze_spending(dfs)
+        }
+        return {mode: ai.generate_fallback_insights(mode, data) for mode, data in insight_requests.items()}
+
+    # Determine current dataset timestamp if available (dashboard sets this on load)
+    import streamlit as st
+    ts = st.session_state.get('data_loaded_at') if 'data_loaded_at' in st.session_state else None
+
+    # If cache matches current data timestamp and enabled flag, return cached
+    if _global_insight_cache['ts'] == ts and _global_insight_cache['enabled'] == ai_enabled and _global_insight_cache['data'] is not None:
+        return _global_insight_cache['data']
+
+    # Build requests and call batch LLM
+    insight_requests = {
+        "Overview": FinancialAnalyzer.analyze_overview(dfs),
+        "Sales Trends": FinancialAnalyzer.analyze_sales(dfs),
+        "AR Collections": FinancialAnalyzer.analyze_ar(dfs),
+        "AP Management": FinancialAnalyzer.analyze_ap(dfs),
+        "Cash Flow": FinancialAnalyzer.analyze_cash(dfs),
+        "Profitability": FinancialAnalyzer.analyze_profit(dfs),
+        "Forecast": FinancialAnalyzer.analyze_forecast(dfs),
+        "Spending": FinancialAnalyzer.analyze_spending(dfs)
+    }
+
+    try:
+        res = ai.get_all_insights(insight_requests)
+    except Exception:
+        # If LLM call fails, fallback per section
+        res = {mode: ai.generate_fallback_insights(mode, data) for mode, data in insight_requests.items()}
+
+    # Update cache
+    # Decide whether results are from AI or fallback
+    source = 'AI'
+    try:
+        if not getattr(ai, 'api_key', None):
+            source = 'Rule'
+        elif getattr(ai, 'quota_exhausted', False):
+            source = 'Rule'
+    except Exception:
+        source = 'Rule'
+
+    _global_insight_cache['ts'] = ts
+    _global_insight_cache['enabled'] = ai_enabled
+    _global_insight_cache['data'] = res
+    _global_insight_cache['source'] = source
+    return res
+
+def render_overview(dfs, ai, ai_enabled=True):
     st.header("Executive Overview")
     
     # --- HEADER (YTD & Balance Sheet) ---
@@ -24,12 +99,13 @@ def render_overview(dfs, ai):
     st.markdown("---")
     
     # AI Insights
-    insights = ai.get_insights("Overview", ov) if ai.model else ai.generate_fallback_insights("Overview", ov)
+    insights = _get_batched_insights(ai, dfs, ai_enabled).get("Overview", [])
+    source = _global_insight_cache.get('source', 'Rule')
     
     with st.container():
         st.markdown(f"""
         <div style="background-color: #262730; padding: 15px; border-radius: 5px; border-left: 5px solid #FF4B4B;">
-            <strong>&#129302; AI INSIGHTS:</strong><br>
+            <strong>&#129302; AI INSIGHTS</strong> <span style='color:#cbd5e1; font-size:0.85rem;'> (Source: {source})</span><br>
             {'<br>'.join([f'• {i}' for i in insights])}
         </div>
         """, unsafe_allow_html=True)
@@ -56,7 +132,7 @@ def render_overview(dfs, ai):
          )
          st.plotly_chart(fig, use_container_width=True)
 
-def render_sales(dfs, ai):
+def render_sales(dfs, ai, ai_enabled=True):
     st.header("Sales Performance")
     
     # Load Data
@@ -173,17 +249,19 @@ def render_sales(dfs, ai):
     
     # Custom Info Box for Sales Insights
     # Now passing raw 'res' object, not str(res)
-    insights = ai.get_insights("Sales Trends", res) if ai.model else ai.generate_fallback_insights("Sales Trends", res)
+    insights = _get_batched_insights(ai, dfs, ai_enabled).get("Sales Trends", [])
+    source = _global_insight_cache.get('source', 'Rule')
     
     # Custom Info Box for Sales Insights
     content = " | ".join(insights)
+    src_label = f"<span style='color:#cbd5e1; font-size:0.85rem;'>(Source: {source})</span>"
     st.markdown(f"""
     <div style="background-color: rgba(67, 97, 238, 0.1); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(67, 97, 238, 0.3); color: #F8FAFC; font-size: 0.95rem; margin-bottom: 20px;">
-        <span style="color: #60A5FA; font-weight: 600;">&#8505; TREND ANALYSIS:</span> {content}
+        <span style="color: #60A5FA; font-weight: 600;">&#8505; TREND ANALYSIS:</span> {content} {src_label}
     </div>
     """, unsafe_allow_html=True)
 
-def render_ar(dfs, ai):
+def render_ar(dfs, ai, ai_enabled=True):
     st.header("Accounts Receivable Aging")
     res = FinancialAnalyzer.analyze_ar(dfs)
     
@@ -221,11 +299,12 @@ def render_ar(dfs, ai):
     st.metric("Total Outstanding AR", f"${res.get('total_ar', 0):,.2f}", "Critical", delta_color="inverse")
     
     # Insights
-    insights = ai.get_insights("AR Collections", res) if ai.model else ai.generate_fallback_insights("AR Collections", res)
+    insights = _get_batched_insights(ai, dfs, ai_enabled).get("AR Collections", [])
+    source = _global_insight_cache.get('source', 'Rule')
     with st.container():
         st.markdown(f"""
         <div style="background-color: #262730; padding: 15px; border-radius: 5px; border-left: 5px solid #FF4B4B;">
-            <strong>&#129302; AI ANALYSIS (AR):</strong><br>
+            <strong>&#129302; AI ANALYSIS (AR)</strong> <span style='color:#cbd5e1; font-size:0.85rem;'> (Source: {source})</span><br>
             {'<br>'.join([f'• {i}' for i in insights])}
         </div>
         """, unsafe_allow_html=True)
@@ -233,7 +312,7 @@ def render_ar(dfs, ai):
     with st.expander("View Detailed Aging Table"):
         st.dataframe(res['aging_table'].style.format({'Amount': '${:,.2f}'}))
 
-def render_ap(dfs, ai):
+def render_ap(dfs, ai, ai_enabled=True):
     st.header("Accounts Payable Management")
     res = FinancialAnalyzer.analyze_ap(dfs)
     
@@ -264,16 +343,17 @@ def render_ap(dfs, ai):
              st.plotly_chart(fig, use_container_width=True)
 
     # Insights
-    insights = ai.get_insights("AP Management", res) if ai.model else ai.generate_fallback_insights("AP Management", res)
+    insights = _get_batched_insights(ai, dfs, ai_enabled).get("AP Management", [])
+    source = _global_insight_cache.get('source', 'Rule')
     with st.container():
          st.markdown(f"""
          <div style="background-color: #262730; padding: 15px; border-radius: 5px; border-left: 5px solid #FF4B4B;">
-             <strong>&#129302; AI ANALYSIS (AP):</strong><br>
+             <strong>&#129302; AI ANALYSIS (AP)</strong> <span style='color:#cbd5e1; font-size:0.85rem;'> (Source: {source})</span><br>
              {'<br>'.join([f'• {i}' for i in insights])}
          </div>
          """, unsafe_allow_html=True)
 
-def render_cash(dfs, ai):
+def render_cash(dfs, ai, ai_enabled=True):
     st.header("Cash Flow & Runway")
     res = FinancialAnalyzer.analyze_cash(dfs)
     
@@ -290,16 +370,17 @@ def render_cash(dfs, ai):
          st.plotly_chart(fig_fc, use_container_width=True)
 
     # Insights
-    insights = ai.get_insights("Cash Flow", res) if ai.model else ai.generate_fallback_insights("Cash Flow", res)
+    insights = _get_batched_insights(ai, dfs, ai_enabled).get("Cash Flow", [])
+    source = _global_insight_cache.get('source', 'Rule')
     with st.container():
          st.markdown(f"""
          <div style="background-color: #262730; padding: 15px; border-radius: 5px; border-left: 5px solid #FF4B4B;">
-             <strong>&#129302; AI ANALYSIS (CASH):</strong><br>
+             <strong>&#129302; AI ANALYSIS (CASH)</strong> <span style='color:#cbd5e1; font-size:0.85rem;'> (Source: {source})</span><br>
              {'<br>'.join([f'• {i}' for i in insights])}
          </div>
          """, unsafe_allow_html=True)
 
-def render_profit(dfs, ai):
+def render_profit(dfs, ai, ai_enabled=True):
     st.header("Profit & Loss Analysis")
     res = FinancialAnalyzer.analyze_profit(dfs)
     pnl = res.get('monthly_pnl', pd.DataFrame())
@@ -382,11 +463,12 @@ def render_profit(dfs, ai):
             st.info("Detailed categorization unavailable.")
             
         # Insights Setup
-        insights = ai.get_insights("Profitability", str(res)) if ai.model else ai.generate_fallback_insights("Profitability", res)
+        insights = _get_batched_insights(ai, dfs, ai_enabled).get("Profitability", [])
+        source = _global_insight_cache.get('source', 'Rule')
         with st.container():
              st.markdown(f"""
              <div style="background-color: #262730; padding: 15px; border-radius: 5px; border-left: 5px solid #FF4B4B;">
-                 <strong>&#129302; AI ANALYSIS (P&L):</strong><br>
+                 <strong>&#129302; AI ANALYSIS (P&L)</strong> <span style='color:#cbd5e1; font-size:0.85rem;'> (Source: {source})</span><br>
                  {'<br>'.join([f'• {i}' for i in insights])}
              </div>
              """, unsafe_allow_html=True)
@@ -394,7 +476,7 @@ def render_profit(dfs, ai):
     else:
         st.info("No P&L data derived.")
 
-def render_forecast(dfs, ai):
+def render_forecast(dfs, ai, ai_enabled=True):
     st.header("Income Forecast (Beta)")
     st.markdown("""
     <div style="background-color: rgba(59, 130, 246, 0.1); padding: 12px 16px; border-radius: 8px; border-left: 4px solid #3B82F6; color: white; margin-bottom: 1rem;">
@@ -477,11 +559,12 @@ def render_forecast(dfs, ai):
         st.dataframe(f_display[['Month', 'Revenue']].style.format({'Revenue': '${:,.0f}'}))
         
         # AI Insights
-        insights = ai.get_insights("Forecast", str(res)) if ai.model else ai.generate_fallback_insights("Forecast", res)
+        insights = _get_batched_insights(ai, dfs, ai_enabled).get("Forecast", [])
+        source = _global_insight_cache.get('source', 'Rule')
         with st.container():
              st.markdown(f"""
              <div style="background-color: #262730; padding: 15px; border-radius: 5px; border-left: 5px solid #AB63FA;">
-                 <strong>&#129302; AI FORECAST ANALYSIS:</strong><br>
+                 <strong>&#129302; AI FORECAST ANALYSIS</strong> <span style='color:#cbd5e1; font-size:0.85rem;'> (Source: {source})</span><br>
                  {'<br>'.join([f'• {i}' for i in insights])}
              </div>
              """, unsafe_allow_html=True)
@@ -489,7 +572,7 @@ def render_forecast(dfs, ai):
     else:
         st.warning("Insufficient data to generate a forecast. Need at least 2 months of Operating Income data.")
 
-def render_spending(dfs, ai):
+def render_spending(dfs, ai, ai_enabled=True):
     st.header("Spending Analysis")
     res = FinancialAnalyzer.analyze_spending(dfs)
     
@@ -596,11 +679,12 @@ def render_spending(dfs, ai):
             st.plotly_chart(fig_line, use_container_width=True)
 
         # AI Insights
-        insights = ai.get_insights("Spending", str(res['top_5_ytd'].to_dict())) if ai.model else ai.generate_fallback_insights("Spending", res)
+        insights = _get_batched_insights(ai, dfs, ai_enabled).get("Spending", [])
+        source = _global_insight_cache.get('source', 'Rule')
         with st.container():
              st.markdown(f"""
              <div style="background-color: #262730; padding: 15px; border-radius: 5px; border-left: 5px solid #EF553B;">
-                 <strong>&#129302; AI SPEND ANALYSIS:</strong><br>
+                 <strong>&#129302; AI SPEND ANALYSIS</strong> <span style='color:#cbd5e1; font-size:0.85rem;'> (Source: {source})</span><br>
                  {'<br>'.join([f'• {i}' for i in insights])}
              </div>
              """, unsafe_allow_html=True)

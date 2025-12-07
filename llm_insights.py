@@ -1,20 +1,71 @@
 import os
 import time
-import google.generativeai as genai
+import re
+import logging
 from dotenv import load_dotenv
 import streamlit as st
 
+try:
+    import google.generativeai as genai
+except Exception:
+    genai = None
+
 load_dotenv()
+
+# Simple file logger for AI insight calls and errors
+logger = logging.getLogger("llm_insights")
+if not logger.handlers:
+    fh = logging.FileHandler("ai_insights.log")
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
+logger.setLevel(logging.INFO)
+
 
 # Cached function to store successful AI responses
 # TTL=3600 (1 hour) means it stays in memory for 60 mins.
 # If it fails, it won't cache the failure, so it retries next time.
 @st.cache_data(ttl=3600, show_spinner=False)
 def cached_generate_content(api_key, model_name, prompt):
+    """Call the provider and return a list of short insights.
+
+    The parser is robust: it extracts bullet lines (starting with -, •, *)
+    or falls back to splitting into short sentences if bullets are not present.
+    """
+    if genai is None:
+        logger.error("google.generativeai library not available")
+        raise RuntimeError("google.generativeai library not available")
+
+    logger.info(f"LLM request: model={model_name} prompt_len={len(prompt)}")
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
     response = model.generate_content(prompt)
-    return [line.strip().replace('- ', '') for line in response.text.split('\n') if line.strip().startswith('-')]
+    text = (response.text or "").strip()
+
+    # Try to extract bullet lines first (common formats)
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    bullets = []
+    for ln in lines:
+        if re.match(r'^[\-•\*]\s+', ln):
+            bullets.append(re.sub(r'^[\-•\*]\s*', '', ln).strip())
+        elif ln.startswith('•'):
+            bullets.append(ln.lstrip('•').strip())
+
+    if not bullets:
+        # Try lines that look like short statements (<= 140 chars)
+        for ln in lines:
+            if len(ln) < 200:
+                bullets.append(ln)
+
+    if not bullets:
+        # Final fallback: split into sentences and take first 3
+        sentences = re.split(r'(?<=[\.\?\!])\s+', text)
+        bullets = [s.strip() for s in sentences if s.strip()]
+
+    # Normalize to max 3 concise items
+    final = [re.sub('\s+', ' ', b).strip() for b in bullets]
+    logger.info(f"LLM response (model={model_name}): {final[:3]}")
+    return final[:3]
 
 class AIAnalyst:
     """
@@ -34,10 +85,15 @@ class AIAnalyst:
                 
         if not self.model:
             print("WARNING: AI model failed to initialize.")
+            self.quota_exhausted = False
+
 
     def get_insights(self, mode, data):
+        # Skip API calls if quota already exhausted
+        if getattr(self, 'quota_exhausted', False):
+            return [f"⚡ {f}" for f in self.generate_fallback_insights(mode, data)]
         if not self.api_key:
-             return self.generate_fallback_insights(mode, data)
+            return self.generate_fallback_insights(mode, data)
 
         # Candidates: Verified available models from user environment
         candidates = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash-exp']
@@ -57,18 +113,76 @@ class AIAnalyst:
         for model_name in candidates:
             try:
                 # Throttle requests to avoid 429 Rate Limit
-                time.sleep(2.0) 
-                
+                time.sleep(1.5)
+
                 # Use the CACHED function
-                return cached_generate_content(self.api_key, model_name, prompt)
+                res = cached_generate_content(self.api_key, model_name, prompt)
+                if res and len(res) >= 1:
+                    return res
+                # if empty, try next candidate
 
             except Exception as e:
                 # If Rate Limit or other error, try next candidate
-                print(f"Error on {model_name}: {e}")
+                error_str = str(e)
+                print(f"Error on {model_name}: {error_str}")
+                if "Quota" in error_str or "429" in error_str:
+                    self.quota_exhausted = True
                 continue
 
         # Final fallback if all models fail
         return [f"⚡ {f}" for f in self.generate_fallback_insights(mode, data)]
+
+    @staticmethod
+    def _combine_prompts(insight_requests: dict) -> str:
+        """Combine multiple mode/data pairs into a single prompt.
+        insight_requests: dict where key is mode name and value is data object.
+        Returns a formatted prompt string.
+        """
+        parts = []
+        for mode, data in insight_requests.items():
+            part = f"MODE: {mode}\nDATA SUMMARY:\n{str(data)}\n"
+            parts.append(part)
+        combined = "You are a financial controller analyzing multiple sections. Provide insights for each section separated by '---'.\n" + "\n---\n".join(parts)
+        return combined
+
+    def get_all_insights(self, insight_requests: dict):
+        """Batch request AI insights for multiple sections.
+        insight_requests: dict mapping mode name to data object.
+        Returns dict of mode -> list of insights.
+        """
+        if not self.api_key:
+            # fallback for each mode
+            return {mode: self.generate_fallback_insights(mode, data) for mode, data in insight_requests.items()}
+
+        # Use same candidates list as get_insights
+        candidates = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash-exp']
+        prompt = self._combine_prompts(insight_requests)
+        for model_name in candidates:
+            try:
+                time.sleep(2.0)
+                # Use cached function for the combined prompt
+                raw_insights = cached_generate_content(self.api_key, model_name, prompt)
+                # Split raw insights by separator '---' assuming each section returns its own lines
+                # For simplicity, assume the AI returns insights in order of request, 3 per section.
+                # We'll chunk them.
+                insights_per_mode = {}
+                # Split into lines and group every 3 lines per mode
+                lines = [line.strip() for line in raw_insights if line.strip()]
+                # Ensure enough lines
+                expected = len(insight_requests) * 3
+                if len(lines) < expected:
+                    # Pad with fallback if missing
+                    lines += ["(no insight)"] * (expected - len(lines))
+                i = 0
+                for mode in insight_requests.keys():
+                    insights_per_mode[mode] = lines[i:i+3]
+                    i += 3
+                return insights_per_mode
+            except Exception as e:
+                print(f"Error on {model_name}: {e}")
+                continue
+        # All models failed, fallback per mode
+        return {mode: [f"⚡ {f}" for f in self.generate_fallback_insights(mode, data)] for mode, data in insight_requests.items()}
 
     @staticmethod
     def generate_fallback_insights(mode, data):

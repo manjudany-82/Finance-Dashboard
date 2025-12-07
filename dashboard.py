@@ -9,6 +9,7 @@ from llm_insights import AIAnalyst
 from render_layouts import render_overview, render_sales, render_ar, render_ap, render_cash, render_profit, render_forecast, render_spending
 from auth import check_password
 import os
+import time
 
 # Page Config
 st.set_page_config(
@@ -582,6 +583,14 @@ def main():
         st.title("FIN ANALYTICS 🚀")
         
         st.header("Data Source")
+
+        # AI Insights Toggle (default ON only if API key present)
+        ai_default = True if os.getenv('GEMINI_API_KEY') else False
+        if 'enable_ai' not in st.session_state:
+            st.session_state['enable_ai'] = ai_default
+        st.session_state['enable_ai'] = st.checkbox("Enable AI Insights", value=st.session_state['enable_ai'])
+        if st.session_state['enable_ai'] and not os.getenv('GEMINI_API_KEY'):
+            st.warning("GEMINI_API_KEY not found — AI will use fallback rule-based insights only.")
         
         # Template Download
         try:
@@ -631,6 +640,8 @@ def main():
                     
                 if st.session_state.data and source_type != "Upload Excel File":
                     st.success("Data Loaded Successfully")
+                    # record a timestamp so AI insight cache can be invalidated on new data
+                    st.session_state['data_loaded_at'] = time.time()
                 elif not st.session_state.data and source_type != "Upload Excel File":
                     st.error("Failed to load data")
 
@@ -644,19 +655,20 @@ def main():
 
     dfs = st.session_state.data
     ai = AIAnalyst()
+    ai_enabled = st.session_state.get('enable_ai', False)
     
     # --- TABS NAVIGATION ---
     # Replaces the old dropdown menu logic
     tabs_list = ["Overview", "Sales Trends", "AR Collections", "AP Management", "Profitability", "Spending", "Forecast"]
     tabs = st.tabs(tabs_list)
     
-    with tabs[0]: render_overview(dfs, ai)
-    with tabs[1]: render_sales(dfs, ai)
-    with tabs[2]: render_ar(dfs, ai)
-    with tabs[3]: render_ap(dfs, ai)
-    with tabs[4]: render_profit(dfs, ai)
-    with tabs[5]: render_spending(dfs, ai)
-    with tabs[6]: render_forecast(dfs, ai)
+    with tabs[0]: render_overview(dfs, ai, ai_enabled)
+    with tabs[1]: render_sales(dfs, ai, ai_enabled)
+    with tabs[2]: render_ar(dfs, ai, ai_enabled)
+    with tabs[3]: render_ap(dfs, ai, ai_enabled)
+    with tabs[4]: render_profit(dfs, ai, ai_enabled)
+    with tabs[5]: render_spending(dfs, ai, ai_enabled)
+    with tabs[6]: render_forecast(dfs, ai, ai_enabled)
 
 if __name__ == "__main__":
     try:
