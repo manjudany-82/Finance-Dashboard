@@ -172,7 +172,14 @@ def render_sales(dfs, ai):
         
     # Insights
     insights = ai.get_insights("Sales Trends", str(res)) if ai.model else ai.generate_fallback_insights("Sales Trends", res)
-    st.info(" | ".join(insights))
+    
+    # Custom Info Box for Sales Insights
+    content = " | ".join(insights)
+    st.markdown(f"""
+    <div style="background-color: rgba(67, 97, 238, 0.1); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(67, 97, 238, 0.3); color: #F8FAFC; font-size: 0.95rem; margin-bottom: 20px;">
+        <span style="color: #60A5FA; font-weight: 600;">ℹ️ TREND ANALYSIS:</span> {content}
+    </div>
+    """, unsafe_allow_html=True)
 
 def render_ar(dfs, ai):
     st.header("Accounts Receivable Aging")
@@ -387,7 +394,11 @@ def render_profit(dfs, ai):
 
 def render_forecast(dfs, ai):
     st.header("Income Forecast (Beta)")
-    st.info("Simulating future performance based on recent average growth of Operating Income.")
+    st.markdown("""
+    <div style="background-color: rgba(59, 130, 246, 0.1); padding: 12px 16px; border-radius: 8px; border-left: 4px solid #3B82F6; color: white; margin-bottom: 1rem;">
+        <strong>🔮 Forecaster:</strong> Simulating future performance based on recent average growth of Operating Income.
+    </div>
+    """, unsafe_allow_html=True)
     
     res = FinancialAnalyzer.analyze_forecast(dfs)
     
