@@ -73,9 +73,16 @@ class AIAnalyst:
                 continue
 
         # Final fallback if all models fail
-        # DEBUG: Show the error to the user
+        # DEBUG: Show the error to the user AND List Models
         fallback = self.generate_fallback_insights(mode, data)
-        error_msg = f"⚠️ Err: {str(last_error)[:40]}" if last_error else "Unknown Error"
+        
+        try:
+            # Attempt to list available models to debug the 404
+            available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            model_list_str = ", ".join([m.replace('models/', '') for m in available[:3]]) # Show first 3
+            error_msg = f"⚠️ Models Found: {model_list_str}"
+        except Exception as list_err:
+            error_msg = f"⚠️ Err: {str(last_error)[:40]}" if last_error else "Unknown Error"
         
         # Return Error + Fallback
         return [error_msg] + [f"⚡ {f}" for f in fallback[:2]]
