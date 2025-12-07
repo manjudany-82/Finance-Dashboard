@@ -24,7 +24,7 @@ def render_overview(dfs, ai):
     st.markdown("---")
     
     # AI Insights
-    insights = ai.get_insights("Overview", str(ov)) if ai.model else ai.generate_fallback_insights("Overview", ov)
+    insights = ai.get_insights("Overview", ov) if ai.model else ai.generate_fallback_insights("Overview", ov)
     
     with st.container():
         st.markdown(f"""
@@ -170,8 +170,10 @@ def render_sales(dfs, ai):
         else:
             st.info("No trend data available.")
         
-    # Insights
-    insights = ai.get_insights("Sales Trends", str(res)) if ai.model else ai.generate_fallback_insights("Sales Trends", res)
+    
+    # Custom Info Box for Sales Insights
+    # Now passing raw 'res' object, not str(res)
+    insights = ai.get_insights("Sales Trends", res) if ai.model else ai.generate_fallback_insights("Sales Trends", res)
     
     # Custom Info Box for Sales Insights
     content = " | ".join(insights)
@@ -219,7 +221,7 @@ def render_ar(dfs, ai):
     st.metric("Total Outstanding AR", f"${res.get('total_ar', 0):,.2f}", "Critical", delta_color="inverse")
     
     # Insights
-    insights = ai.get_insights("AR Collections", str(res)) if ai.model else ai.generate_fallback_insights("AR Collections", res)
+    insights = ai.get_insights("AR Collections", res) if ai.model else ai.generate_fallback_insights("AR Collections", res)
     with st.container():
         st.markdown(f"""
         <div style="background-color: #262730; padding: 15px; border-radius: 5px; border-left: 5px solid #FF4B4B;">
@@ -255,45 +257,6 @@ def render_ap(dfs, ai):
     with c2:
         st.subheader("Payment Schedule")
         if not vendors.empty:
-             top_v = vendors.head(5)
-             other_amt = vendors.iloc[5:]['Amount'].sum()
-             plot_df = pd.concat([top_v, pd.DataFrame([{'Vendor': 'Other', 'Amount': other_amt}])], ignore_index=True)
-             fig = px.pie(plot_df, values='Amount', names='Vendor', hole=0.4, title="Payables Distribution", template="plotly_dark")
-             st.plotly_chart(fig, use_container_width=True)
-
-    # Insights
-    insights = ai.get_insights("AP Management", str(res)) if ai.model else ai.generate_fallback_insights("AP Management", res)
-    with st.container():
-         st.markdown(f"""
-         <div style="background-color: #262730; padding: 15px; border-radius: 5px; border-left: 5px solid #FF4B4B;">
-             <strong>🤖 AI ANALYSIS (AP):</strong><br>
-             {'<br>'.join([f'• {i}' for i in insights])}
-         </div>
-         """, unsafe_allow_html=True)
-
-def render_cash(dfs, ai):
-    st.header("Cash Flow & Runway")
-    res = FinancialAnalyzer.analyze_cash(dfs)
-    
-    st.metric("Estimated Runway", f"{res['runway_months']:.1f} Months", "Critical" if res['runway_months'] < 6 else "Stable")
-    
-    st.plotly_chart(px.line(res['daily_trend'], x='Date', y='Balance', title="Daily Cash Balance", template="plotly_dark"), use_container_width=True)
-    
-    # Forecast Overlay
-    fe_res = ForecastEngine.run_cash_forecast(dfs.get('Cash'))
-    if fe_res is not None:
-         df_fc, slope = fe_res
-         st.subheader(f"Cash Forecast (Next 3 Months) - Trend Slope: {slope:.2f}")
-         fig_fc = px.line(df_fc, x='Date', y='Balance', color='Type', template="plotly_dark")
-         st.plotly_chart(fig_fc, use_container_width=True)
-
-    # Insights
-    insights = ai.get_insights("Cash Flow", str(res)) if ai.model else ai.generate_fallback_insights("Cash Flow", res)
-    with st.container():
-         st.markdown(f"""
-         <div style="background-color: #262730; padding: 15px; border-radius: 5px; border-left: 5px solid #FF4B4B;">
-             <strong>🤖 AI ANALYSIS (CASH):</strong><br>
-             {'<br>'.join([f'• {i}' for i in insights])}
          </div>
          """, unsafe_allow_html=True)
 

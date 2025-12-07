@@ -24,9 +24,9 @@ class AIAnalyst:
         if not self.model:
             print("WARNING: AI model failed to initialize.")
 
-    def get_insights(self, mode, data_summary):
+    def get_insights(self, mode, data):
         if not self.api_key:
-             return ["AI Insights disabled (Missing API Key)", "Please add GEMINI_API_KEY to .env", "Using mock insights for now."]
+             return self.generate_fallback_insights(mode, data)
 
         # Candidates confirmed from environment logs
         candidates = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-pro-latest']
@@ -35,7 +35,7 @@ class AIAnalyst:
         You are a financial controller analyzing a company's data.
         MODE: {mode}
         DATA SUMMARY:
-        {data_summary}
+        {str(data)}
         TASK: Provide exactly 3 short, actionable, punchy bullet points.
         OUTPUT FORMAT:
         - Insight 1
@@ -46,7 +46,7 @@ class AIAnalyst:
         for model_name in candidates:
             try:
                 # Throttle requests to avoid 429 Rate Limit
-                time.sleep(4.0) 
+                time.sleep(2.0) 
                 
                 model = genai.GenerativeModel(model_name)
                 response = model.generate_content(prompt)
@@ -54,14 +54,15 @@ class AIAnalyst:
             except Exception as e:
                 error_str = str(e)
                 if "429" in error_str or "Quota" in error_str or "Resource" in error_str:
-                    print(f"Rate Limit Hit on {model_name}")
-                    # If we hit rate limit, waiting might help, or just fail gracefully to fallback
-                    # We return a specific message so the loop breaks early or notifies user?
-                    # Actually better to just return the specific error immediately so we don't hammer the API more.
-                    return ["⚠️ Traffic Limiter Active", "The AI is thinking too fast...", "Switch tabs to retry (Don't Refresh!)"]
-                
-                # print(f"Failed with {model_name}: {e}")
+                    print(f"Rate Limit Hit on {model_name} - Switching to Fallback")
+                    # Fallback to offline insights immediately to prevent user error
+                    fallback = self.generate_fallback_insights(mode, data)
+                    # Add a small indicator that this is offline data
+                    return [f"⚡ {f}" for f in fallback]
                 continue
+
+        # Final fallback if all models fail
+        return [f"⚡ {f}" for f in self.generate_fallback_insights(mode, data)]
 
         return ["AI Connection Failed", "No compatible Gemini models found", "Please check API Quota"]
 
