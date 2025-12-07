@@ -46,7 +46,7 @@ class AIAnalyst:
         for model_name in candidates:
             try:
                 # Throttle requests to avoid 429 Rate Limit
-                time.sleep(1.0) 
+                time.sleep(4.0) 
                 
                 model = genai.GenerativeModel(model_name)
                 response = model.generate_content(prompt)
