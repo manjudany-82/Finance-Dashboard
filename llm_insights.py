@@ -58,7 +58,7 @@ class AIAnalyst:
                     # If we hit rate limit, waiting might help, or just fail gracefully to fallback
                     # We return a specific message so the loop breaks early or notifies user?
                     # Actually better to just return the specific error immediately so we don't hammer the API more.
-                    return ["⚠️ Traffic Limiter Active", "The AI is thinking too fast...", "Please wait 10s and refresh"]
+                    return ["⚠️ Traffic Limiter Active", "The AI is thinking too fast...", "Switch tabs to retry (Don't Refresh!)"]
                 
                 # print(f"Failed with {model_name}: {e}")
                 continue
