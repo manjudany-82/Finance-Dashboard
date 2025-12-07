@@ -39,8 +39,8 @@ class AIAnalyst:
         if not self.api_key:
              return self.generate_fallback_insights(mode, data)
 
-        # Candidates confirmed from environment logs
-        candidates = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-pro-latest']
+        # Candidates: Prioritize the stable 1.5 Flash model
+        candidates = ['gemini-1.5-flash', 'gemini-1.5-pro']
         
         prompt = f"""
         You are a financial controller analyzing a company's data.
@@ -57,19 +57,8 @@ class AIAnalyst:
         for model_name in candidates:
             try:
                 # Throttle requests to avoid 429 Rate Limit
-                # Reduced to 1.0s because we now have Caching!
-                # If cached, this sleep is skipped entirely by the cached function wrapper if I moved sleep inside.
-                # But sleep is outside. So first hit waits 1s. Subsequent hits wait 1s but get instant result.
-                # Actually, if I want instant result on cache, I should check cache first?
-                # No, st.cache_data handles that.
-                # Wait, if I sleep BEFORE calling cached function, I always sleep.
-                # I should move sleep INSIDE cached function? No, then it sleeps every time it runs (uncached).
-                # But if it IS cached, the function body (including sleep) is skipped? 
-                # Yes! If I put sleep inside cached_generate_content, then cached calls are instant.
-                # But I can't put sleep there easily because I loop over candidates OUTSIDE.
-                
-                # Compromise: precise sleep here. 
-                time.sleep(1.0) 
+                # Increased to 2.0s to ensure "Free Tier" limits are respected
+                time.sleep(2.0) 
                 
                 # Use the CACHED function
                 # We pass api_key to ensure cache invalidates if key changes (rare but good practice)
