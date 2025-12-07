@@ -39,8 +39,8 @@ class AIAnalyst:
         if not self.api_key:
              return self.generate_fallback_insights(mode, data)
 
-        # Candidates: Prioritize the stable 1.5 Flash model
-        candidates = ['gemini-1.5-flash', 'gemini-1.5-pro']
+        # Candidates: Fallback to legacy 'gemini-pro' if 1.5 is unavailable
+        candidates = ['gemini-1.5-flash', 'gemini-pro', 'gemini-1.0-pro-latest']
         
         prompt = f"""
         You are a financial controller analyzing a company's data.
