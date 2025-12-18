@@ -341,6 +341,7 @@ def render_sales(dfs, ai, ai_enabled=True):
             if not product_mom_growth.empty:
                 import plotly.graph_objects as go
                 from financial_analyzer.chart_styles import apply_chart_style
+                import numpy as np
                 
                 # Get top 10 products by total revenue
                 top_products = product_monthly.sum(axis=1).nlargest(10).index
@@ -349,33 +350,89 @@ def render_sales(dfs, ai, ai_enabled=True):
                 # Format month labels
                 month_labels = [col.strftime('%b %Y') for col in growth_subset.columns]
                 
-                # Create heatmap
+                # Premium color scale with smooth gradients
+                colorscale = [
+                    [0.0, '#B91C1C'],    # Deep red for strong negative
+                    [0.2, '#DC2626'],    # Red for negative
+                    [0.35, '#F87171'],   # Light red
+                    [0.45, '#FEE2E2'],   # Very light red
+                    [0.5, '#F3F4F6'],    # Neutral gray at zero
+                    [0.55, '#D1FAE5'],   # Very light green
+                    [0.65, '#6EE7B7'],   # Light green
+                    [0.8, '#10B981'],    # Green for positive
+                    [1.0, '#059669']     # Deep green for strong positive
+                ]
+                
+                # Format text with better readability
+                text_values = np.where(
+                    growth_subset.values == 0,
+                    '0%',
+                    np.where(
+                        growth_subset.values > 0,
+                        '+' + growth_subset.values.round(1).astype(str) + '%',
+                        growth_subset.values.round(1).astype(str) + '%'
+                    )
+                )
+                
+                # Create premium heatmap
                 fig = go.Figure(data=go.Heatmap(
                     z=growth_subset.values,
                     x=month_labels,
                     y=growth_subset.index,
-                    colorscale=[
-                        [0, '#EF4444'],      # Red for negative
-                        [0.5, '#F3F4F6'],    # Light gray for zero
-                        [1, '#10B981']       # Green for positive
-                    ],
+                    colorscale=colorscale,
                     zmid=0,
-                    text=growth_subset.values.round(1),
-                    texttemplate='%{text}%',
-                    textfont={"size": 10},
+                    text=text_values,
+                    texttemplate='%{text}',
+                    textfont={
+                        "size": 11,
+                        "family": "Inter, -apple-system, sans-serif",
+                        "color": "#1F2937"
+                    },
                     colorbar=dict(
-                        title="Growth %",
+                        title=dict(
+                            text="MoM Growth",
+                            font=dict(size=13, family="Inter", color="#F9FAFB")
+                        ),
                         titleside="right",
-                        ticksuffix="%"
+                        ticksuffix="%",
+                        tickfont=dict(size=11, family="Inter", color="#D1D5DB"),
+                        len=0.85,
+                        thickness=15,
+                        bgcolor='rgba(15, 23, 42, 0.5)',
+                        bordercolor='#374151',
+                        borderwidth=1,
+                        outlinecolor='#4B5563',
+                        outlinewidth=1
                     ),
-                    hovertemplate='<b>%{y}</b><br>%{x}<br>MoM Growth: %{z:.1f}%<extra></extra>'
+                    hovertemplate=(
+                        '<b style="font-size:13px">%{y}</b><br>' +
+                        '<span style="color:#9CA3AF">%{x}</span><br>' +
+                        '<span style="font-size:14px; font-weight:600">MoM Growth: %{z:.1f}%</span>' +
+                        '<extra></extra>'
+                    ),
+                    xgap=3,
+                    ygap=3
                 ))
                 
                 fig.update_layout(
-                    xaxis_title="",
-                    yaxis_title="",
-                    height=400,
-                    yaxis=dict(autorange='reversed')
+                    xaxis=dict(
+                        title="",
+                        tickfont=dict(size=11, family="Inter", color="#D1D5DB"),
+                        showgrid=False,
+                        side='bottom',
+                        tickangle=-45
+                    ),
+                    yaxis=dict(
+                        title="",
+                        tickfont=dict(size=12, family="Inter", color="#F3F4F6", weight=600),
+                        showgrid=False,
+                        autorange='reversed'
+                    ),
+                    height=450,
+                    margin=dict(l=10, r=120, t=10, b=80),
+                    plot_bgcolor='rgba(15, 23, 42, 0.3)',
+                    paper_bgcolor='transparent',
+                    font=dict(family="Inter, -apple-system, sans-serif")
                 )
                 
                 apply_chart_style(fig)
