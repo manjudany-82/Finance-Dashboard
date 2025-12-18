@@ -295,129 +295,129 @@ def render_sales(dfs, ai, ai_enabled=True):
                 st.dataframe(product_monthly.head())
         
         if not product_monthly.empty and len(product_monthly.columns) > 1:
-        # Select visualization type
-        viz_type = st.radio(
-            "View:",
-            ["Monthly Sales by Product", "MoM Growth % Heatmap"],
-            horizontal=True,
-            key="mom_viz_type"
-        )
-        
-        if viz_type == "Monthly Sales by Product":
-            # Line chart showing each product's monthly sales
-            import plotly.graph_objects as go
-            from chart_styles import apply_chart_style
-            
-            fig = go.Figure()
-            
-            # Color palette for products
-            colors = ['#06B6D4', '#F59E0B', '#EF4444', '#10B981', '#8B5CF6', 
-                     '#EC4899', '#F97316', '#14B8A6', '#6366F1', '#A78BFA']
-            
-            # Get top 8 products by total revenue
-            top_products = product_monthly.sum(axis=1).nlargest(8).index
-            
-            for idx, product in enumerate(top_products):
-                color = colors[idx % len(colors)]
-                fig.add_trace(go.Scatter(
-                    x=[col.strftime('%b %Y') for col in product_monthly.columns],
-                    y=product_monthly.loc[product],
-                    name=product,
-                    mode='lines+markers',
-                    line=dict(color=color, width=2.5),
-                    marker=dict(size=7, color=color),
-                    hovertemplate='<b>' + product + '</b><br>%{x}<br>Revenue: $%{y:,.0f}<extra></extra>'
-                ))
-            
-            fig.update_layout(
-                xaxis_title="",
-                yaxis_title="Revenue ($)",
-                height=450,
-                hovermode='x unified',
-                legend=dict(
-                    orientation="v",
-                    yanchor="top",
-                    y=1,
-                    xanchor="left",
-                    x=1.02
-                )
+            # Select visualization type
+            viz_type = st.radio(
+                "View:",
+                ["Monthly Sales by Product", "MoM Growth % Heatmap"],
+                horizontal=True,
+                key="mom_viz_type"
             )
             
-            apply_chart_style(fig)
-            st.plotly_chart(fig, use_container_width=True)
-            
-        else:
-            # Heatmap showing MoM growth percentages
-            if not product_mom_growth.empty:
+            if viz_type == "Monthly Sales by Product":
+                # Line chart showing each product's monthly sales
                 import plotly.graph_objects as go
                 from chart_styles import apply_chart_style
                 
-                # Get top 10 products by total revenue
-                top_products = product_monthly.sum(axis=1).nlargest(10).index
-                growth_subset = product_mom_growth.loc[top_products]
+                fig = go.Figure()
                 
-                # Format month labels
-                month_labels = [col.strftime('%b %Y') for col in growth_subset.columns]
+                # Color palette for products
+                colors = ['#06B6D4', '#F59E0B', '#EF4444', '#10B981', '#8B5CF6', 
+                         '#EC4899', '#F97316', '#14B8A6', '#6366F1', '#A78BFA']
                 
-                # Create heatmap
-                fig = go.Figure(data=go.Heatmap(
-                    z=growth_subset.values,
-                    x=month_labels,
-                    y=growth_subset.index,
-                    colorscale=[
-                        [0, '#EF4444'],      # Red for negative
-                        [0.5, '#F3F4F6'],    # Light gray for zero
-                        [1, '#10B981']       # Green for positive
-                    ],
-                    zmid=0,
-                    text=growth_subset.values.round(1),
-                    texttemplate='%{text}%',
-                    textfont={"size": 10},
-                    colorbar=dict(
-                        title="Growth %",
-                        titleside="right",
-                        ticksuffix="%"
-                    ),
-                    hovertemplate='<b>%{y}</b><br>%{x}<br>MoM Growth: %{z:.1f}%<extra></extra>'
-                ))
+                # Get top 8 products by total revenue
+                top_products = product_monthly.sum(axis=1).nlargest(8).index
+                
+                for idx, product in enumerate(top_products):
+                    color = colors[idx % len(colors)]
+                    fig.add_trace(go.Scatter(
+                        x=[col.strftime('%b %Y') for col in product_monthly.columns],
+                        y=product_monthly.loc[product],
+                        name=product,
+                        mode='lines+markers',
+                        line=dict(color=color, width=2.5),
+                        marker=dict(size=7, color=color),
+                        hovertemplate='<b>' + product + '</b><br>%{x}<br>Revenue: $%{y:,.0f}<extra></extra>'
+                    ))
                 
                 fig.update_layout(
                     xaxis_title="",
-                    yaxis_title="",
-                    height=400,
-                    yaxis=dict(autorange='reversed')
+                    yaxis_title="Revenue ($)",
+                    height=450,
+                    hovermode='x unified',
+                    legend=dict(
+                        orientation="v",
+                        yanchor="top",
+                        y=1,
+                        xanchor="left",
+                        x=1.02
+                    )
                 )
                 
                 apply_chart_style(fig)
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # Summary insights
-                col_a, col_b, col_c = st.columns(3)
-                
-                # Find best and worst performers in latest month
-                latest_month = product_mom_growth.columns[-1]
-                latest_growth = product_mom_growth[latest_month].sort_values(ascending=False)
-                
-                # Filter out zero or NaN values
-                latest_growth_clean = latest_growth[latest_growth.notna() & (latest_growth != 0)]
-                
-                if len(latest_growth_clean) > 0:
-                    best_product = latest_growth_clean.index[0]
-                    best_growth = latest_growth_clean.iloc[0]
-                    
-                    worst_product = latest_growth_clean.index[-1]
-                    worst_growth = latest_growth_clean.iloc[-1]
-                    
-                    avg_growth = latest_growth_clean.mean()
-                    
-                    col_a.metric("Top Performer", best_product, f"+{best_growth:.1f}%")
-                    col_b.metric("Average MoM Growth", f"{avg_growth:.1f}%")
-                    col_c.metric("Needs Attention", worst_product, f"{worst_growth:.1f}%", delta_color="inverse")
             else:
-                st.info("Insufficient data for MoM growth analysis.")
-    else:
-        st.info("Insufficient monthly data for product-wise trend analysis. Need at least 2 months of data.")
-        
+                # Heatmap showing MoM growth percentages
+                if not product_mom_growth.empty:
+                    import plotly.graph_objects as go
+                    from chart_styles import apply_chart_style
+                    
+                    # Get top 10 products by total revenue
+                    top_products = product_monthly.sum(axis=1).nlargest(10).index
+                    growth_subset = product_mom_growth.loc[top_products]
+                    
+                    # Format month labels
+                    month_labels = [col.strftime('%b %Y') for col in growth_subset.columns]
+                    
+                    # Create heatmap
+                    fig = go.Figure(data=go.Heatmap(
+                        z=growth_subset.values,
+                        x=month_labels,
+                        y=growth_subset.index,
+                        colorscale=[
+                            [0, '#EF4444'],      # Red for negative
+                            [0.5, '#F3F4F6'],    # Light gray for zero
+                            [1, '#10B981']       # Green for positive
+                        ],
+                        zmid=0,
+                        text=growth_subset.values.round(1),
+                        texttemplate='%{text}%',
+                        textfont={"size": 10},
+                        colorbar=dict(
+                            title="Growth %",
+                            titleside="right",
+                            ticksuffix="%"
+                        ),
+                        hovertemplate='<b>%{y}</b><br>%{x}<br>MoM Growth: %{z:.1f}%<extra></extra>'
+                    ))
+                    
+                    fig.update_layout(
+                        xaxis_title="",
+                        yaxis_title="",
+                        height=400,
+                        yaxis=dict(autorange='reversed')
+                    )
+                    
+                    apply_chart_style(fig)
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Summary insights
+                    col_a, col_b, col_c = st.columns(3)
+                    
+                    # Find best and worst performers in latest month
+                    latest_month = product_mom_growth.columns[-1]
+                    latest_growth = product_mom_growth[latest_month].sort_values(ascending=False)
+                    
+                    # Filter out zero or NaN values
+                    latest_growth_clean = latest_growth[latest_growth.notna() & (latest_growth != 0)]
+                    
+                    if len(latest_growth_clean) > 0:
+                        best_product = latest_growth_clean.index[0]
+                        best_growth = latest_growth_clean.iloc[0]
+                        
+                        worst_product = latest_growth_clean.index[-1]
+                        worst_growth = latest_growth_clean.iloc[-1]
+                        
+                        avg_growth = latest_growth_clean.mean()
+                        
+                        col_a.metric("Top Performer", best_product, f"+{best_growth:.1f}%")
+                        col_b.metric("Average MoM Growth", f"{avg_growth:.1f}%")
+                        col_c.metric("Needs Attention", worst_product, f"{worst_growth:.1f}%", delta_color="inverse")
+                else:
+                    st.info("Insufficient data for MoM growth analysis.")
+        else:
+            st.info("Insufficient monthly data for product-wise trend analysis. Need at least 2 months of data.")
+            
     except Exception as e:
         st.error(f"Error rendering MoM analysis: {str(e)}")
         import traceback
