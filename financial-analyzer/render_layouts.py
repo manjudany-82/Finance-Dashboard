@@ -161,6 +161,9 @@ def render_sales(dfs, ai, ai_enabled=True):
     st.header("💰 Sales Performance")
     st.caption("Revenue trends and product performance analysis")
     
+    # TEST: This should appear at the very top
+    st.warning("🔴 TEST MARKER: If you see this, the code is executing!")
+    
     # Load Data
     res = FinancialAnalyzer.analyze_sales(dfs)
     by_prod = res.get('by_product', pd.DataFrame())
