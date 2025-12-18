@@ -595,3 +595,85 @@ class FinancialAnalyzer:
         except Exception as e:
             print(f"Cash Flow Statement Error: {e}")
             return None
+
+    @staticmethod
+    def detect_anomalies(dfs, spike_threshold=300, drop_threshold=-50, z_score_threshold=3):
+        """
+        Detect anomalies in month-on-month product revenue
+        
+        Args:
+            dfs: Dictionary of dataframes
+            spike_threshold: % growth above which is considered a spike (default: 300%)
+            drop_threshold: % growth below which is considered a drop (default: -50%)
+            z_score_threshold: Z-score threshold for statistical anomalies (default: 3)
+            
+        Returns:
+            DataFrame with columns: Month, Product, Revenue, MoM_Growth_Pct, Anomaly_Type, Z_Score
+        """
+        import numpy as np
+        from scipy import stats
+        
+        # Get sales analysis data
+        sales_data = FinancialAnalyzer.analyze_sales(dfs)
+        product_monthly = sales_data.get('product_monthly', pd.DataFrame())
+        product_mom_growth = sales_data.get('product_mom_growth', pd.DataFrame())
+        
+        if product_monthly.empty or product_mom_growth.empty:
+            return pd.DataFrame(columns=['Month', 'Product', 'Revenue', 'MoM_Growth_Pct', 'Anomaly_Type', 'Z_Score'])
+        
+        anomalies = []
+        
+        # Iterate through each product
+        for product in product_mom_growth.index:
+            revenue_values = product_monthly.loc[product].values
+            growth_values = product_mom_growth.loc[product].values
+            months = product_monthly.columns
+            
+            # Calculate Z-scores for growth values (excluding zeros and infinities)
+            valid_growth = growth_values[(~np.isinf(growth_values)) & (growth_values != 0)]
+            if len(valid_growth) > 2:
+                z_scores = np.abs(stats.zscore(valid_growth, nan_policy='omit'))
+                z_score_dict = dict(zip(range(len(growth_values)), [0] * len(growth_values)))
+                valid_indices = np.where((~np.isinf(growth_values)) & (growth_values != 0))[0]
+                for idx, z in zip(valid_indices, z_scores):
+                    z_score_dict[idx] = z
+            else:
+                z_score_dict = {i: 0 for i in range(len(growth_values))}
+            
+            # Check each month for anomalies
+            for i, (month, revenue, growth) in enumerate(zip(months, revenue_values, growth_values)):
+                if i == 0:  # Skip first month (no MoM comparison)
+                    continue
+                
+                anomaly_types = []
+                z_score = z_score_dict.get(i, 0)
+                
+                # Threshold-based detection
+                if growth > spike_threshold:
+                    anomaly_types.append('Spike')
+                if growth < drop_threshold:
+                    anomaly_types.append('Drop')
+                
+                # Statistical detection (Z-score)
+                if z_score > z_score_threshold and abs(growth) > 10:  # At least 10% change
+                    if 'Statistical' not in anomaly_types:
+                        anomaly_types.append('Statistical')
+                
+                # If any anomaly detected, add to list
+                if anomaly_types:
+                    anomalies.append({
+                        'Month': month.strftime('%b %Y') if hasattr(month, 'strftime') else str(month),
+                        'Product': product,
+                        'Revenue': revenue,
+                        'MoM_Growth_Pct': growth,
+                        'Anomaly_Type': ', '.join(anomaly_types),
+                        'Z_Score': z_score
+                    })
+        
+        # Create DataFrame and sort by absolute growth
+        anomalies_df = pd.DataFrame(anomalies)
+        if not anomalies_df.empty:
+            anomalies_df['Abs_Growth'] = anomalies_df['MoM_Growth_Pct'].abs()
+            anomalies_df = anomalies_df.sort_values('Abs_Growth', ascending=False).drop('Abs_Growth', axis=1)
+        
+        return anomalies_df

@@ -130,6 +130,17 @@ def render_ai_insights(dfs, ai, ai_enabled=True):
     st.header("🤖 AI Business Intelligence")
     st.caption("Consolidated executive insights powered by AI analysis across all financial areas")
     
+    # User controls in sidebar
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("🎯 Anomaly Detection Settings")
+        spike_threshold = st.slider("Spike Threshold (%)", 100, 500, 300, 50, 
+                                    help="Growth % above this is flagged as spike")
+        drop_threshold = st.slider("Drop Threshold (%)", -90, -10, -50, 10,
+                                   help="Growth % below this is flagged as drop")
+        z_threshold = st.slider("Z-Score Threshold", 2.0, 4.0, 3.0, 0.5,
+                               help="Statistical significance level")
+    
     # Get all insights
     all_insights = _get_batched_insights(ai, dfs, ai_enabled)
     source = 'AI' if ai_enabled and ai.api_key and not getattr(ai, 'quota_exhausted', False) else 'Rule-Based'
@@ -176,6 +187,83 @@ def render_ai_insights(dfs, ai, ai_enabled=True):
         </div>
     </div>
     """, unsafe_allow_html=True)
+    
+    # ===== ANOMALY ALERTS SECTION =====
+    st.markdown("---")
+    st.subheader("⚠️ Anomaly Alerts - Product Revenue")
+    
+    # Detect anomalies
+    anomalies_df = FinancialAnalyzer.detect_anomalies(dfs, spike_threshold, drop_threshold, z_threshold)
+    
+    if not anomalies_df.empty:
+        # Summary metrics
+        col_a, col_b, col_c = st.columns(3)
+        
+        total_anomalies = len(anomalies_df)
+        spikes = len(anomalies_df[anomalies_df['Anomaly_Type'].str.contains('Spike', na=False)])
+        drops = len(anomalies_df[anomalies_df['Anomaly_Type'].str.contains('Drop', na=False)])
+        
+        with col_a:
+            st.metric("Total Anomalies", total_anomalies, delta=None)
+        with col_b:
+            st.metric("🔥 Spikes", spikes, delta=None)
+        with col_c:
+            st.metric("📉 Drops", drops, delta=None)
+        
+        # Critical alerts - show drops and major spikes
+        critical_anomalies = anomalies_df[
+            (anomalies_df['Anomaly_Type'].str.contains('Drop', na=False)) | 
+            (anomalies_df['MoM_Growth_Pct'] > spike_threshold * 1.5)
+        ]
+        
+        if not critical_anomalies.empty:
+            st.markdown("""
+            <div style="background-color: #450a0a; padding: 12px; border-radius: 8px; 
+                        border: 2px solid #DC2626; margin: 16px 0;">
+                <h4 style="margin: 0; color: #fca5a5; font-size: 1rem;">🚨 Critical Anomalies</h4>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            for _, row in critical_anomalies.head(5).iterrows():
+                if 'Drop' in row['Anomaly_Type']:
+                    st.error(f"**{row['Product']}** - {row['Month']}: Revenue dropped **{row['MoM_Growth_Pct']:.1f}%** (${row['Revenue']:,.0f})")
+                else:
+                    st.warning(f"**{row['Product']}** - {row['Month']}: Revenue spiked **+{row['MoM_Growth_Pct']:.1f}%** (${row['Revenue']:,.0f})")
+        
+        # Full anomalies table
+        with st.expander("📊 View All Anomalies (Sortable Table)", expanded=False):
+            # Format the dataframe for display
+            display_df = anomalies_df.copy()
+            display_df['Revenue'] = display_df['Revenue'].apply(lambda x: f"${x:,.0f}")
+            display_df['MoM_Growth_Pct'] = display_df['MoM_Growth_Pct'].apply(lambda x: f"{x:+.1f}%")
+            display_df['Z_Score'] = display_df['Z_Score'].apply(lambda x: f"{x:.2f}")
+            
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                height=400,
+                column_config={
+                    "Month": st.column_config.TextColumn("Month", width="medium"),
+                    "Product": st.column_config.TextColumn("Product", width="large"),
+                    "Revenue": st.column_config.TextColumn("Revenue", width="medium"),
+                    "MoM_Growth_Pct": st.column_config.TextColumn("MoM Growth %", width="medium"),
+                    "Anomaly_Type": st.column_config.TextColumn("Type", width="medium"),
+                    "Z_Score": st.column_config.TextColumn("Z-Score", width="small")
+                }
+            )
+            
+            # Download button
+            csv = anomalies_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Anomalies as CSV",
+                data=csv,
+                file_name="product_anomalies.csv",
+                mime="text/csv"
+            )
+    else:
+        st.info("✅ No significant anomalies detected in product revenue trends.")
+    
+    st.markdown("---")
     
     # Categorize insights
     categorized = categorize_insights(all_insights, dfs)
