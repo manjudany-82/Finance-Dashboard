@@ -275,11 +275,11 @@ def render_sales(dfs, ai, ai_enabled=True):
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No trend data available.")
-        
     
-    # Month-on-Month Product-Wise Sales Trends
+    # ====== NEW MONTH-ON-MONTH ANALYSIS SECTION ======
     st.divider()
     st.subheader("📈 Month-on-Month Product Performance")
+    st.write("✅ **This section is rendering successfully!**")
     
     try:
         product_monthly = res.get('product_monthly', pd.DataFrame())
