@@ -363,16 +363,19 @@ def render_sales(dfs, ai, ai_enabled=True):
                     [1.0, '#059669']     # Deep green for strong positive
                 ]
                 
-                # Format text with better readability
-                text_values = np.where(
-                    growth_subset.values == 0,
-                    '0%',
-                    np.where(
-                        growth_subset.values > 0,
-                        '+' + growth_subset.values.round(1).astype(str) + '%',
-                        growth_subset.values.round(1).astype(str) + '%'
-                    )
-                )
+                # Format text with better readability using list comprehension
+                text_values = []
+                for row in growth_subset.values:
+                    row_text = []
+                    for val in row:
+                        if val == 0:
+                            row_text.append('0%')
+                        elif val > 0:
+                            row_text.append(f'+{val:.1f}%')
+                        else:
+                            row_text.append(f'{val:.1f}%')
+                    text_values.append(row_text)
+                text_values = np.array(text_values)
                 
                 # Create premium heatmap
                 fig = go.Figure(data=go.Heatmap(
