@@ -427,7 +427,7 @@ def render_sales(dfs, ai, ai_enabled=True):
                     ),
                     yaxis=dict(
                         title="",
-                        tickfont=dict(size=12, family="Inter", color="#F3F4F6", weight=600),
+                        tickfont=dict(size=12, family="Inter", color="#F3F4F6"),
                         showgrid=False,
                         autorange='reversed'
                     ),
