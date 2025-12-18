@@ -96,30 +96,37 @@ class FinancialAnalyzer:
             try:
                 # Create pivot table: Products as rows, Months as columns
                 df_copy = df.copy()
-                df_copy[month_col] = pd.to_datetime(df_copy[month_col])
+                df_copy[month_col] = pd.to_datetime(df_copy[month_col], errors='coerce')
+                df_copy = df_copy.dropna(subset=[month_col])  # Remove invalid dates
+                df_copy[rev_col] = pd.to_numeric(df_copy[rev_col], errors='coerce')  # Ensure numeric revenue
+                df_copy = df_copy.dropna(subset=[rev_col])  # Remove invalid revenue values
                 df_copy = df_copy.sort_values(month_col)
                 
-                product_monthly = df_copy.pivot_table(
-                    index=prod_col,
-                    columns=month_col,
-                    values=rev_col,
-                    aggfunc='sum',
-                    fill_value=0
-                )
-                
-                # Calculate Month-on-Month growth percentage
-                if len(product_monthly.columns) > 1:
-                    product_mom_growth = product_monthly.copy()
-                    for i in range(1, len(product_mom_growth.columns)):
-                        prev_col = product_mom_growth.columns[i-1]
-                        curr_col = product_mom_growth.columns[i]
-                        # Calculate percentage change
-                        product_mom_growth[curr_col] = (
-                            (product_monthly[curr_col] - product_monthly[prev_col]) / 
-                            product_monthly[prev_col].replace(0, 1) * 100
-                        )
-                    # First column has no previous month, set to 0
-                    product_mom_growth[product_mom_growth.columns[0]] = 0
+                # Only proceed if we have data
+                if len(df_copy) == 0:
+                    pass  # Will return empty DataFrames
+                else:
+                    product_monthly = df_copy.pivot_table(
+                        index=prod_col,
+                        columns=month_col,
+                        values=rev_col,
+                        aggfunc='sum',
+                        fill_value=0
+                    )
+                    
+                    # Calculate Month-on-Month growth percentage
+                    if len(product_monthly.columns) > 1:
+                        product_mom_growth = product_monthly.copy()
+                        for i in range(1, len(product_mom_growth.columns)):
+                            prev_col = product_mom_growth.columns[i-1]
+                            curr_col = product_mom_growth.columns[i]
+                            # Calculate percentage change
+                            product_mom_growth[curr_col] = (
+                                (product_monthly[curr_col] - product_monthly[prev_col]) / 
+                                product_monthly[prev_col].replace(0, 1) * 100
+                            )
+                        # First column has no previous month, set to 0
+                        product_mom_growth[product_mom_growth.columns[0]] = 0
                     
             except Exception as e:
                 # If pivot fails, log error and return empty dataframes
