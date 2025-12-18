@@ -284,6 +284,11 @@ def render_sales(dfs, ai, ai_enabled=True):
     product_monthly = res.get('product_monthly', pd.DataFrame())
     product_mom_growth = res.get('product_mom_growth', pd.DataFrame())
     
+    # Debug info
+    if st.session_state.get('debug_mode'):
+        st.write(f"Debug: product_monthly shape: {product_monthly.shape if not product_monthly.empty else 'empty'}")
+        st.write(f"Debug: product_monthly columns: {len(product_monthly.columns) if not product_monthly.empty else 0}")
+    
     if not product_monthly.empty and len(product_monthly.columns) > 1:
         # Select visualization type
         viz_type = st.radio(

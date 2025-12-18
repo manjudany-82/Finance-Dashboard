@@ -122,7 +122,10 @@ class FinancialAnalyzer:
                     product_mom_growth[product_mom_growth.columns[0]] = 0
                     
             except Exception as e:
-                # If pivot fails, return empty dataframes
+                # If pivot fails, log error and return empty dataframes
+                import streamlit as st
+                if st.session_state.get('debug_mode'):
+                    st.error(f"MoM Analysis Error: {str(e)}")
                 pass
         
         result = {
