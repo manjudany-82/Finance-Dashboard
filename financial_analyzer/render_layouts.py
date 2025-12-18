@@ -2,8 +2,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from analysis_modes import FinancialAnalyzer
-from forecast_engine import ForecastEngine
+from financial_analyzer.analysis_modes import FinancialAnalyzer
+from financial_analyzer.forecast_engine import ForecastEngine
 
 # Toggle AI insights display
 ENABLE_AI_INSIGHTS = False
@@ -208,7 +208,7 @@ def render_sales(dfs, ai, ai_enabled=True):
                 plot_df = by_prod
             
             # Premium 3D Donut Chart
-            from chart_styles import apply_chart_style, COLORS
+            from financial_analyzer.chart_styles import apply_chart_style, COLORS
             import plotly.graph_objects as go
             
             # Create vibrant color palette
@@ -247,7 +247,7 @@ def render_sales(dfs, ai, ai_enabled=True):
     with col2:
         st.markdown("##### Monthly Trend")
         if not trend.empty:
-            from chart_styles import apply_chart_style, COLORS
+            from financial_analyzer.chart_styles import apply_chart_style, COLORS
             import plotly.graph_objects as go
             
             fig = go.Figure()
@@ -296,7 +296,7 @@ def render_sales(dfs, ai, ai_enabled=True):
         if viz_type == "Monthly Sales by Product":
             # Line chart showing each product's monthly sales
             import plotly.graph_objects as go
-            from chart_styles import apply_chart_style
+            from financial_analyzer.chart_styles import apply_chart_style
             
             fig = go.Figure()
             
@@ -340,7 +340,7 @@ def render_sales(dfs, ai, ai_enabled=True):
             # Heatmap showing MoM growth percentages
             if not product_mom_growth.empty:
                 import plotly.graph_objects as go
-                from chart_styles import apply_chart_style
+                from financial_analyzer.chart_styles import apply_chart_style
                 
                 # Get top 10 products by total revenue
                 top_products = product_monthly.sum(axis=1).nlargest(10).index
@@ -648,7 +648,7 @@ def render_cash(dfs, ai, ai_enabled=True):
         # Waterfall Chart - Cash Flow Components
         st.subheader("Cash Flow Waterfall")
         import plotly.graph_objects as go
-        from chart_styles import apply_chart_style
+        from financial_analyzer.chart_styles import apply_chart_style
         
         fig_waterfall = go.Figure(go.Waterfall(
             name="Cash Flow",
@@ -743,7 +743,7 @@ def render_profit(dfs, ai, ai_enabled=True):
         st.divider()
         st.subheader("📈 Monthly Trends")
         
-        from chart_styles import apply_chart_style, COLORS
+        from financial_analyzer.chart_styles import apply_chart_style, COLORS
         import plotly.graph_objects as go
         
         # Create grouped bar chart
@@ -859,7 +859,7 @@ def render_forecast(dfs, ai, ai_enabled=True):
         # Concatenate for single source
         combined = pd.concat([history, forecast], ignore_index=True)
         
-        from chart_styles import apply_chart_style, COLORS, get_line_config
+        from financial_analyzer.chart_styles import apply_chart_style, COLORS, get_line_config
         import plotly.graph_objects as go
         
         fig = go.Figure()
@@ -955,7 +955,7 @@ def render_spending(dfs, ai, ai_enabled=True):
         # 1. Monthly Trend Bar Chart
         st.subheader("Total Monthly Spending")
         
-        from chart_styles import apply_chart_style, COLORS
+        from financial_analyzer.chart_styles import apply_chart_style, COLORS
         import plotly.graph_objects as go
         
         fig_trend = go.Figure()

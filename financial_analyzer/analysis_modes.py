@@ -1,5 +1,5 @@
 
-from schema_matcher import SchemaMatcher
+from financial_analyzer.schema_matcher import SchemaMatcher
 import pandas as pd
 from datetime import datetime
 import streamlit as st

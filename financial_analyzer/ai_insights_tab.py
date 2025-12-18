@@ -5,8 +5,8 @@ Provides comprehensive AI-powered analysis across all financial areas
 
 import streamlit as st
 import pandas as pd
-from analysis_modes import FinancialAnalyzer
-from render_layouts import _get_batched_insights
+from financial_analyzer.analysis_modes import FinancialAnalyzer
+from financial_analyzer.render_layouts import _get_batched_insights
 
 
 def calculate_health_score(dfs):

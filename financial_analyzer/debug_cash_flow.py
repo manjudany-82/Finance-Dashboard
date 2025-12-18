@@ -1,4 +1,4 @@
-from microsoft_excel import ExcelHandler
+from financial_analyzer.microsoft_excel import ExcelHandler
 
 # Load data
 dfs = ExcelHandler.load_data('onedrive')

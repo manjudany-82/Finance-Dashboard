@@ -2,8 +2,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 import pandas as pd
-from microsoft_excel import ExcelHandler
-from analysis_modes import FinancialAnalyzer
+from financial_analyzer.microsoft_excel import ExcelHandler
+from financial_analyzer.analysis_modes import FinancialAnalyzer
 
 app = FastAPI(title="Financial Analyzer API", version="1.0.0")
 

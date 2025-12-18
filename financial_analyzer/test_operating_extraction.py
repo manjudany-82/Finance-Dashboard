@@ -1,5 +1,5 @@
-from microsoft_excel import ExcelHandler
-from analysis_modes import FinancialAnalyzer
+from financial_analyzer.microsoft_excel import ExcelHandler
+from financial_analyzer.analysis_modes import FinancialAnalyzer
 import pandas as pd
 
 # Load data

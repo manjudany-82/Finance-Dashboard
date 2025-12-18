@@ -1,6 +1,6 @@
 import json
 import os
-from llm_insights import AIAnalyst
+from financial_analyzer.llm_insights import AIAnalyst
 
 # Simple sample data to exercise fallback and batch path
 sample_requests = {

@@ -1,4 +1,4 @@
-from microsoft_excel import ExcelHandler
+from financial_analyzer.microsoft_excel import ExcelHandler
 import pandas as pd
 import warnings
 warnings.filterwarnings('ignore')

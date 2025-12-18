@@ -1,4 +1,4 @@
-from microsoft_excel import ExcelHandler
+from financial_analyzer.microsoft_excel import ExcelHandler
 import pandas as pd
 
 print("=== Testing Data Load from OneDrive with December Fix ===\n")

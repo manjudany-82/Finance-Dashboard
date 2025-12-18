@@ -2,13 +2,13 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from microsoft_excel import ExcelHandler
-from analysis_modes import FinancialAnalyzer
-from forecast_engine import ForecastEngine
-from llm_insights import AIAnalyst
-from render_layouts import render_overview, render_sales, render_ar, render_ap, render_cash, render_profit, render_forecast, render_spending
-from ai_insights_tab import render_ai_insights
-from auth import check_password
+from financial_analyzer.microsoft_excel import ExcelHandler
+from financial_analyzer.analysis_modes import FinancialAnalyzer
+from financial_analyzer.forecast_engine import ForecastEngine
+from financial_analyzer.llm_insights import AIAnalyst
+from financial_analyzer.render_layouts import render_overview, render_sales, render_ar, render_ap, render_cash, render_profit, render_forecast, render_spending
+from financial_analyzer.ai_insights_tab import render_ai_insights
+from financial_analyzer.auth import check_password
 import os
 import time
 
