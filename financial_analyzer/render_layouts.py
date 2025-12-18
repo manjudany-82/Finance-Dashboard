@@ -434,7 +434,7 @@ def render_sales(dfs, ai, ai_enabled=True):
                     height=450,
                     margin=dict(l=10, r=120, t=10, b=80),
                     plot_bgcolor='rgba(15, 23, 42, 0.3)',
-                    paper_bgcolor='transparent',
+                    paper_bgcolor='rgba(0,0,0,0)',
                     font=dict(family="Inter, -apple-system, sans-serif")
                 )
                 
