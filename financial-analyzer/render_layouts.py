@@ -281,15 +281,20 @@ def render_sales(dfs, ai, ai_enabled=True):
     st.divider()
     st.subheader("📈 Month-on-Month Product Performance")
     
-    product_monthly = res.get('product_monthly', pd.DataFrame())
-    product_mom_growth = res.get('product_mom_growth', pd.DataFrame())
-    
-    # Debug info
-    if st.session_state.get('debug_mode'):
-        st.write(f"Debug: product_monthly shape: {product_monthly.shape if not product_monthly.empty else 'empty'}")
-        st.write(f"Debug: product_monthly columns: {len(product_monthly.columns) if not product_monthly.empty else 0}")
-    
-    if not product_monthly.empty and len(product_monthly.columns) > 1:
+    try:
+        product_monthly = res.get('product_monthly', pd.DataFrame())
+        product_mom_growth = res.get('product_mom_growth', pd.DataFrame())
+        
+        # Always show debug info for troubleshooting
+        with st.expander("🔍 Data Debug Info", expanded=False):
+            st.write(f"Product Monthly Data Shape: {product_monthly.shape if not product_monthly.empty else 'empty'}")
+            st.write(f"Number of Months: {len(product_monthly.columns) if not product_monthly.empty else 0}")
+            st.write(f"Number of Products: {len(product_monthly.index) if not product_monthly.empty else 0}")
+            if not product_monthly.empty:
+                st.write(f"Sample data:")
+                st.dataframe(product_monthly.head())
+        
+        if not product_monthly.empty and len(product_monthly.columns) > 1:
         # Select visualization type
         viz_type = st.radio(
             "View:",
@@ -412,6 +417,12 @@ def render_sales(dfs, ai, ai_enabled=True):
                 st.info("Insufficient data for MoM growth analysis.")
     else:
         st.info("Insufficient monthly data for product-wise trend analysis. Need at least 2 months of data.")
+        
+    except Exception as e:
+        st.error(f"Error rendering MoM analysis: {str(e)}")
+        import traceback
+        with st.expander("Error Details"):
+            st.code(traceback.format_exc())
     
     # Custom Info Box for Sales Insights
     st.divider()
