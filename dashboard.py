@@ -1,3 +1,12 @@
+import sys
+import os
+from pathlib import Path
+
+# Add the repo root to Python path for imports to work correctly
+repo_root = Path(__file__).parent.absolute()
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -9,7 +18,6 @@ from financial_analyzer.llm_insights import AIAnalyst
 from financial_analyzer.render_layouts import render_overview, render_sales, render_ar, render_ap, render_cash, render_profit, render_forecast, render_spending
 from financial_analyzer.ai_insights_tab import render_ai_insights
 from financial_analyzer.auth import check_password
-import os
 import time
 
 # Page Config
