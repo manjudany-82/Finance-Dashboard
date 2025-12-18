@@ -870,9 +870,7 @@ def collapse_sidebar():
     st.session_state['sidebar_collapsed'] = True
     st.experimental_rerun()
 
-def expand_sidebar():
-    st.session_state['sidebar_collapsed'] = False
-    st.experimental_rerun()
+
 
 def main():
     # Handle URL-driven actions (logout / expand) before rendering
@@ -885,14 +883,6 @@ def main():
         from financial_analyzer.auth import logout as _logout
         _logout()
         return
-
-    if params.get('expand', [None])[0] == '1':
-        st.session_state['sidebar_collapsed'] = False
-        try:
-            st.experimental_set_query_params()
-        except Exception:
-            pass
-        st.experimental_rerun()
 
     # 🔒 AUTHENTICATION CHECK
     if not check_password():
@@ -998,7 +988,6 @@ def main():
             """
             <div style="position:fixed; top:12px; right:12px; z-index:999999; display:flex; gap:8px;">
                 <a href="?logout=1" style="background:#ef4444;color:white;padding:8px 10px;border-radius:8px;text-decoration:none;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.2);">🚪 Logout</a>
-                <a href="?expand=1" style="background:#6366f1;color:white;padding:8px 10px;border-radius:8px;text-decoration:none;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.15);">► Expand</a>
             </div>
             """, unsafe_allow_html=True)
 
