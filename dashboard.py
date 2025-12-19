@@ -1091,7 +1091,7 @@ def main():
                 try:
                     import google.generativeai as genai
                     genai.configure(api_key=api_key)
-                    model = genai.GenerativeModel("gemini-pro")
+                    model = genai.GenerativeModel("models/gemini-1.5-flash")
                     response = model.generate_content(question)
                     st.write("**Gemini Response:**")
                     st.write(response.text)
