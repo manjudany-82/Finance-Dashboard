@@ -1083,22 +1083,25 @@ def main():
         if question:
             st.info(f"You asked: {question}")
             
-            # Try to call Gemini API as a connectivity test
+            # HARD CONNECTIVITY TEST - bypassing user input temporarily
             api_key = st.secrets.get("GEMINI_API_KEY", "")
             
             if not api_key:
                 st.warning("⚠️ GEMINI_API_KEY not configured in Streamlit secrets")
             else:
                 try:
-                    # Configure Gemini with API key
+                    # Configure Gemini with API key (v1 stable SDK)
                     genai.configure(api_key=api_key)
-                    # Use stable v1 SDK model
+                    # Hard test call - ignoring user question for now
                     model = genai.GenerativeModel("gemini-1.5-flash")
-                    response = model.generate_content(question)
-                    st.write("**Gemini Response:**")
+                    response = model.generate_content("Say hello in one sentence")
+                    st.success("✅ Gemini connectivity test passed!")
+                    st.write("**Test Response:**")
                     st.write(response.text)
                 except Exception as e:
-                    st.warning(f"⚠️ Gemini API error: {str(e)}")
+                    st.error(f"⚠️ Gemini API error: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
         else:
             st.success("✅ Ask Your Financials block rendered")
     
