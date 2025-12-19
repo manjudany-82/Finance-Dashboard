@@ -57,6 +57,23 @@ from financial_analyzer.ai_insights_tab import render_ai_insights
 from financial_analyzer.auth import check_password
 import time
 
+# Gemini test function using NEW SDK
+def run_gemini_test():
+    st.subheader("🧪 Gemini Test")
+    
+    try:
+        client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+        
+        response = client.models.generate_content(
+            model="models/gemini-1.5-flash",
+            contents="Say hello in one short sentence."
+        )
+        
+        st.success(response.text)
+        
+    except Exception as e:
+        st.error(f"Gemini test failed: {e}")
+
 # Custom CSS for Premium Modern Design v2.0
 st.markdown("""
 <style>
@@ -1074,21 +1091,8 @@ def main():
         # DEBUG: PROVE THIS TAB EXECUTES
         st.error("🚨 ENTERED AI INSIGHTS TAB 🚨")
         
-        # EXACT GEMINI TEST CODE - NEW SDK
-        st.subheader("🧪 Gemini Test")
-        
-        try:
-            client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
-            
-            response = client.models.generate_content(
-                model="models/gemini-1.5-flash",
-                contents="Say hello in one short sentence"
-            )
-            
-            st.success(response.text)
-            
-        except Exception as e:
-            st.error(f"Gemini test failed: {e}")
+        # Call Gemini test function
+        run_gemini_test()
     
     with tabs[2]: render_sales(dfs, ai, ai_enabled)
     with tabs[3]: render_ar(dfs, ai, ai_enabled)
