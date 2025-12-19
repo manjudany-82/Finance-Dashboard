@@ -1092,8 +1092,8 @@ def main():
                 try:
                     # Configure Gemini with API key (v1 stable SDK)
                     genai.configure(api_key=api_key)
-                    # Hard test call - ignoring user question for now
-                    model = genai.GenerativeModel("gemini-pro")
+                    # Hard test call - using v1beta supported model
+                    model = genai.GenerativeModel("models/gemini-1.0-pro")
                     response = model.generate_content("Say hello in one sentence")
                     st.success("✅ Gemini connectivity test passed!")
                     st.write("**Test Response:**")
