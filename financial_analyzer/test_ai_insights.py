@@ -1,8 +1,15 @@
+import os
 import pandas as pd
 import pytest
 
-from dashboard import compute_dashboard_insights
-from financial_analyzer.ai_insights_tab import calculate_health_score
+# Decorator to mark AI integration tests. Use on tests that require a live Gemini key.
+requires_gemini = pytest.mark.skipif(
+    not bool(os.getenv("GEMINI_API_KEY")),
+    reason="Skipping AI integration test: GEMINI_API_KEY not set"
+)
+
+from financial_analyzer.metrics import compute_dashboard_insights
+from financial_analyzer.insights_core import calculate_health_score
 
 
 def test_compute_dashboard_insights_basic():

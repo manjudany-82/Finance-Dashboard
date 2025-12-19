@@ -48,8 +48,8 @@ import pandas as pd
 import json
 import plotly.express as px
 import plotly.graph_objects as go
-from google import genai
 from financial_analyzer.microsoft_excel import ExcelHandler
+from financial_analyzer.metrics import compute_dashboard_insights
 from financial_analyzer.analysis_modes import FinancialAnalyzer
 from financial_analyzer.forecast_engine import ForecastEngine
 from financial_analyzer.llm_insights import AIAnalyst
@@ -68,76 +68,9 @@ def _pick_primary_df(data):
                 return value
     return None
 
-def compute_dashboard_insights(df: pd.DataFrame) -> dict:
-    """Compute deterministic metrics and anomalies from the OneDrive DataFrame.
-
-    This function is the authoritative Python Metrics Engine. All numeric metrics
-    are computed here and passed to Gemini for interpretation only.
-    """
-    insights = {
-        "revenue": {},
-        "expenses": {},
-        "profitability": {},
-        "anomalies": [],
-        "metadata": {
-            "period": None,
-            "source": "OneDrive Excel",
-            "accounting_method": "Accrual"
-        }
-    }
-
-    # Metadata
-    insights["metadata"]["row_count"] = len(df)
-    insights["metadata"]["columns"] = list(df.columns)
-
-    # Heuristic detection of revenue/expense columns
-    revenue_cols = [c for c in df.columns if any(k in c.lower() for k in ("revenue", "sales", "turnover"))]
-    expense_cols = [c for c in df.columns if any(k in c.lower() for k in ("expense", "cost", "cogs", "fee", "fees"))]
-
-    numeric = df.select_dtypes(include="number")
-
-    # Revenue totals
-    if revenue_cols:
-        rev_totals = {c: float(df[c].sum()) for c in revenue_cols}
-        total_revenue = sum(rev_totals.values())
-    else:
-        # fallback: pick numeric column with largest positive sum
-        if not numeric.empty:
-            sums = numeric.sum(numeric_only=True)
-            candidate = sums[sums > 0]
-            if not candidate.empty:
-                top_col = candidate.idxmax()
-                rev_totals = {top_col: float(candidate.max())}
-                total_revenue = float(candidate.max())
-            else:
-                rev_totals = {}
-                total_revenue = 0.0
-        else:
-            rev_totals = {}
-            total_revenue = 0.0
-
-    insights["revenue"]["totals"] = rev_totals
-    insights["revenue"]["total_revenue"] = total_revenue
-
-    # Top revenue stream
-    if rev_totals:
-        top_stream = max(rev_totals.items(), key=lambda x: x[1])
-        insights["revenue"]["top_stream"] = {"name": top_stream[0], "value": top_stream[1], "pct": (top_stream[1] / total_revenue) if total_revenue else None}
-    else:
-        insights["revenue"]["top_stream"] = None
-
-    # Expenses
-    if expense_cols:
-        exp_totals = {c: float(df[c].sum()) for c in expense_cols}
-        total_expenses = sum(exp_totals.values())
-    else:
-        exp_totals = {}
-        total_expenses = 0.0
-
-    insights["expenses"]["totals"] = exp_totals
-    insights["expenses"]["total_expenses"] = total_expenses
-
-    # Profitability metrics
+# `compute_dashboard_insights` has been moved to `financial_analyzer.metrics`
+# to keep UI modules free of business logic and allow tests to import
+# metrics without pulling in Streamlit or AI SDKs.
     insights["profitability"]["gross_margin"] = None
     insights["profitability"]["net_margin"] = None
     cogs_cols = [c for c in df.columns if "cog" in c.lower() or "cost of goods" in c.lower()]
@@ -254,21 +187,47 @@ def run_gemini_test():
             "Output format: Provide Summary Interpretation, Key Insights, Risks & Anomalies, Follow-up Questions (if applicable), and Data Scope & Warnings."
         )
 
-        client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+        # If no GEMINI API key is configured in secrets or env, do NOT call out
+        gemini_key = None
+        try:
+            gemini_key = st.secrets.get('GEMINI_API_KEY') if hasattr(st, 'secrets') else None
+        except Exception:
+            gemini_key = None
+        if not gemini_key and not os.getenv('GEMINI_API_KEY'):
+            st.info("AI insights are disabled in this environment. Set GEMINI_API_KEY to enable.")
+            return
 
-        # Model is locked to gemini-2.0-flash (no UI override)
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=f"SYSTEM:\n{system_prompt}\n\n{user_payload}"
-        )
+        # Lazy-import genai and create a client only at runtime when key present
+        try:
+            from google import genai as _genai
+        except Exception as e:
+            st.warning("Gemini SDK not available. Install google-genai to enable AI features.")
+            return
 
-        st.session_state["last_gemini_call_ts"] = time.time()
+        api_key = gemini_key or os.getenv('GEMINI_API_KEY')
+        try:
+            client = _genai.Client(api_key=api_key)
+            # Model is locked to gemini-2.0-flash (no UI override)
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=f"SYSTEM:\n{system_prompt}\n\n{user_payload}"
+            )
 
-        # Render the AI interpretation; Gemini must not calculate metrics
-        st.markdown(response.text)
+            st.session_state["last_gemini_call_ts"] = time.time()
 
-        # Mandatory appended warning for audit safety
-        st.info("⚠ This analysis is based solely on the connected OneDrive Excel data. No dashboard widgets, cached values, or prior AI responses were used.")
+            # Render the AI interpretation; Gemini must not calculate metrics
+            st.markdown(getattr(response, 'text', str(response)))
+
+            # Mandatory appended warning for audit safety
+            st.info("⚠ This analysis is based solely on the connected OneDrive Excel data. No dashboard widgets, cached values, or prior AI responses were used.")
+        except Exception as e:
+            msg = str(e)
+            if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+                st.warning("⚠️ AI is temporarily busy due to usage limits. Please wait a minute and try again.")
+            elif "404" in msg:
+                st.warning("⚠️ AI model is unavailable. Please contact support if this persists.")
+            else:
+                st.warning(f"Gemini error: {msg}")
 
     except Exception as e:
         msg = str(e)

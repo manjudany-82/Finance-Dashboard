@@ -4,7 +4,7 @@ import re
 import logging
 import pandas as pd
 from dotenv import load_dotenv
-import streamlit as st
+from functools import lru_cache
 
 try:
     from google import genai
@@ -23,20 +23,18 @@ if not logger.handlers:
 logger.setLevel(logging.INFO)
 
 
-# Optimized cached function with better TTL and hash-based caching
-# TTL=7200 (2 hours) for better cache reuse across sessions
-@st.cache_data(ttl=7200, show_spinner=False, hash_funcs={dict: lambda x: str(sorted(x.items()))})
-def cached_generate_content(api_key_hash, model_name, prompt):
-    """Call the provider and return a list of short insights.
+# Lightweight cached function using lru_cache to avoid importing Streamlit
+@lru_cache(maxsize=256)
+def _cached_call(api_key_hash, model_name, prompt):
+    """Internal cached call to the provider.
 
-    Uses API key hash for security and better caching.
-    Optimized parser for faster response extraction.
+    This uses simple LRU caching instead of Streamlit's cache so the module
+    can be imported safely in test/CI environments where Streamlit isn't available.
     """
     if genai is None:
         logger.error("google-genai library not available")
         raise RuntimeError("google-genai library not available")
 
-    # Reconstruct actual API key from environment (hash is for cache key only)
     api_key = os.getenv('GEMINI_API_KEY')
     logger.info(f"LLM request: model={model_name} prompt_len={len(prompt)}")
     client = genai.Client(api_key=api_key)
@@ -54,13 +52,11 @@ def cached_generate_content(api_key_hash, model_name, prompt):
         text = ''
     if not text:
         try:
-            # try candidate path
             cand = getattr(response, 'candidates', None)
             if cand and len(cand) > 0:
                 first = cand[0]
                 text = getattr(first, 'content', None)
                 if isinstance(text, list) and len(text) > 0:
-                    # content items may have .text
                     item = text[0]
                     text = getattr(item, 'text', '') or str(item)
                 else:
@@ -69,11 +65,10 @@ def cached_generate_content(api_key_hash, model_name, prompt):
             text = str(response)
     text = (text or '').strip()
 
-    # Optimized bullet extraction with single-pass parsing
+    # Optimized bullet extraction
     lines = text.splitlines()
     bullets = []
     bullet_pattern = re.compile(r'^[\-•\*]\s*(.+)$')
-    
     for ln in lines:
         ln = ln.strip()
         if not ln:
@@ -81,17 +76,26 @@ def cached_generate_content(api_key_hash, model_name, prompt):
         match = bullet_pattern.match(ln)
         if match:
             bullets.append(match.group(1).strip())
-        elif len(ln) < 200 and not bullets:  # Fallback for non-bullet format
+        elif len(ln) < 200 and not bullets:
             bullets.append(ln)
-    
-    # Fast fallback: split sentences if no bullets found
+
     if not bullets:
         bullets = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
-    
-    # Normalize whitespace in single pass
-    final = [re.sub(r'\s+', ' ', b) for b in bullets if b][:5]  # Take max 5
+
+    final = [re.sub(r'\s+', ' ', b) for b in bullets if b][:5]
     logger.info(f"LLM response (model={model_name}): extracted {len(final)} insights")
     return {"bullets": final, "raw": text}
+
+
+def cached_generate_content(api_key_hash, model_name, prompt):
+    """Public wrapper that validates environment and invokes the cached call.
+
+    Raises RuntimeError if AI is disabled (no GEMINI_API_KEY or genai missing).
+    """
+    if genai is None or not os.getenv('GEMINI_API_KEY'):
+        logger.error('AI disabled or GEMINI_API_KEY missing')
+        raise RuntimeError('AI disabled or GEMINI_API_KEY missing')
+    return _cached_call(api_key_hash, model_name, prompt)
 
 class AIAnalyst:
     """

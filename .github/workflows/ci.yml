@@ -31,9 +31,17 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+      - name: Check GEMINI API key (optional)
+        run: |
+          if [ -z "${{ secrets.GEMINI_API_KEY }}" ]; then
+            echo "GEMINI_API_KEY is not set; AI calls will be skipped during tests."
+          else
+            echo "GEMINI_API_KEY is set (will be available to tests)."
+          fi
+
       - name: Run tests
+        # Explicitly pass GEMINI_API_KEY (may be empty) so tests can opt-in or skip AI tests
         env:
-          # GEMINI API key is not required to run deterministic tests; allow optional secret
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           pytest -q
