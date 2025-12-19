@@ -9,6 +9,14 @@ if str(repo_root) not in sys.path:
 
 import streamlit as st
 
+# Page Config - MUST be the first Streamlit command
+st.set_page_config(
+    page_title="Enterprise Financial Dashboard",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 # DEBUG: Verify this is the actual entrypoint
 st.error("🚨 ROOT dashboard.py ENTRYPOINT LOADED 🚨")
 
@@ -47,14 +55,6 @@ from financial_analyzer.render_layouts import render_overview, render_sales, ren
 from financial_analyzer.ai_insights_tab import render_ai_insights
 from financial_analyzer.auth import check_password
 import time
-
-# Page Config
-st.set_page_config(
-    page_title="Enterprise Financial Dashboard",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # Custom CSS for Premium Modern Design v2.0
 st.markdown("""
