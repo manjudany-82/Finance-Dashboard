@@ -74,13 +74,14 @@ def run_gemini_test():
     user_question = st.text_input("Ask a question about your financials", key="ai_insights_question")
     submit = st.button("Submit", key="ai_insights_submit")
 
-    df = st.session_state.get("uploaded_df")
+    # Only allow OneDrive Excel data as the analysis source
+    df = st.session_state.get("df")
 
     if not submit:
         return
 
     if df is None or getattr(df, "empty", True):
-        st.warning("⚠️ Please upload an Excel file to analyze.")
+        st.warning("⚠️ No financial data loaded from OneDrive. Please check the Excel link.")
         return
 
     normalized_q = (user_question or "").strip()
@@ -98,7 +99,8 @@ def run_gemini_test():
     try:
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
-        # Build concise, data-only context from the uploaded Excel
+        # Build concise, OneDrive-only context
+        row_count = len(df)
         cols = list(df.columns)
         numeric_totals = df.select_dtypes(include="number").sum(numeric_only=True)
         numeric_totals_str = numeric_totals.to_string() if not numeric_totals.empty else "(no numeric totals)"
@@ -109,23 +111,25 @@ def run_gemini_test():
             maxs = date_cols.max().max()
             if pd.notna(mins) and pd.notna(maxs):
                 date_range_str = f"{mins} to {maxs}"
-        sample_csv = df.head(5).to_csv(index=False)
+        sample_txt = df.head(5).to_string(index=False)
 
         prompt = (
             "SYSTEM:\n"
-            "You are a financial analyst.\n"
-            "You must ONLY use the uploaded Excel data provided below.\n"
-            "Do NOT use any prior knowledge, dashboard data, or assumptions.\n"
-            "If the uploaded data is insufficient, clearly say so.\n\n"
+            "You are a professional financial analyst.\n"
+            "You MUST base your analysis ONLY on the OneDrive Excel data provided below.\n"
+            "Do NOT use dashboard data, assumptions, or prior knowledge.\n"
+            "If information is missing, explicitly say so.\n\n"
             "DATA SOURCE:\n"
-            "Uploaded Excel file (OneDrive or local upload).\n\n"
+            "OneDrive Excel (static link)\n\n"
             "DATA SUMMARY:\n"
-            f"- Columns: {cols}\n"
+            "- File source: OneDrive\n"
+            f"- Row count: {row_count}\n"
+            f"- Column names: {cols}\n"
             f"- Date range: {date_range_str}\n"
-            f"- Numeric totals:\n{numeric_totals_str}\n"
-            "- Sample (first 5 rows):\n"
-            f"{sample_csv}\n\n"
-            "If the question cannot be answered from the uploaded data, respond exactly: 'This question cannot be answered from the uploaded Excel data.'\n\n"
+            f"- Aggregated totals for numeric columns:\n{numeric_totals_str}\n"
+            "- First 5 rows (plain text):\n"
+            f"{sample_txt}\n\n"
+            "If the question cannot be answered from this data, respond exactly: 'This question cannot be answered from the uploaded Excel data.'\n\n"
             "USER QUESTION:\n"
             f"{normalized_q}"
         )
@@ -1071,10 +1075,10 @@ def main():
                     if uploaded_file:
                          try:
                             st.session_state.data = ExcelHandler.load_data(source="upload", file_path=uploaded_file)
-                            st.session_state.df = _pick_primary_df(st.session_state.data)
-                            st.session_state.uploaded_df = st.session_state.df
+                            # For compliance with "OneDrive-only" AI analysis, do not set df from uploads
+                            st.session_state.df = None
                             if st.session_state.data:
-                                st.success("File Processed Successfully")
+                                st.success("File Processed Successfully (dashboard views only)")
                          except Exception as e:
                             st.error(f"Error processing file: {e}")
                     else:
@@ -1082,7 +1086,6 @@ def main():
                 else:
                     st.session_state.data = ExcelHandler.load_data(source="onedrive", onedrive_config={'url': onedrive_url, 'token': onedrive_token})
                     st.session_state.df = _pick_primary_df(st.session_state.data)
-                    st.session_state.uploaded_df = st.session_state.df
                     
                 if st.session_state.data and source_type != "Upload Excel File":
                     st.success("Data Loaded Successfully")
