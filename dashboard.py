@@ -1081,29 +1081,15 @@ def main():
         question = st.text_input("Ask a question about your financials", key="force_ai_test")
         
         if question:
-            st.info(f"You asked: {question}")
-            
-            # HARD CONNECTIVITY TEST - bypassing user input temporarily
-            api_key = st.secrets.get("GEMINI_API_KEY", "")
-            
-            if not api_key:
-                st.warning("⚠️ GEMINI_API_KEY not configured in Streamlit secrets")
-            else:
-                try:
-                    # Initialize Gemini client (new google-genai SDK v1 API)
-                    client = genai.Client(api_key=api_key)
-                    # Use stable v1 model with new SDK
-                    response = client.models.generate_content(
-                        model="gemini-1.5-pro",
-                        contents="Say hello in one sentence"
-                    )
-                    st.success("✅ Gemini connectivity test passed!")
-                    st.write("**Test Response:**")
-                    st.write(response.text)
-                except Exception as e:
-                    st.error(f"⚠️ Gemini API error: {str(e)}")
-                    import traceback
-                    st.code(traceback.format_exc())
+            try:
+                client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+                response = client.models.generate_content(
+                    model="models/gemini-1.5-flash",
+                    contents="Say hello in one sentence"
+                )
+                st.success(response.text)
+            except Exception as e:
+                st.error(f"Gemini test failed: {e}")
         else:
             st.success("✅ Ask Your Financials block rendered")
     
