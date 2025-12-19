@@ -74,13 +74,13 @@ def run_gemini_test():
     user_question = st.text_input("Ask a question about your financials", key="ai_insights_question")
     submit = st.button("Submit", key="ai_insights_submit")
 
-    df = st.session_state.get("df")
+    df = st.session_state.get("uploaded_df")
 
     if not submit:
         return
 
     if df is None or getattr(df, "empty", True):
-        st.warning("No financial data found. Please upload or load your data.")
+        st.warning("⚠️ Please upload an Excel file to analyze.")
         return
 
     normalized_q = (user_question or "").strip()
@@ -98,16 +98,35 @@ def run_gemini_test():
     try:
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
-        df_as_csv = df.head(50).to_csv(index=False)
+        # Build concise, data-only context from the uploaded Excel
+        cols = list(df.columns)
+        numeric_totals = df.select_dtypes(include="number").sum(numeric_only=True)
+        numeric_totals_str = numeric_totals.to_string() if not numeric_totals.empty else "(no numeric totals)"
+        date_cols = df.select_dtypes(include=["datetime", "datetime64[ns]"]) if hasattr(df, "select_dtypes") else None
+        date_range_str = "(no date columns)"
+        if date_cols is not None and not date_cols.empty:
+            mins = date_cols.min().min()
+            maxs = date_cols.max().max()
+            if pd.notna(mins) and pd.notna(maxs):
+                date_range_str = f"{mins} to {maxs}"
+        sample_csv = df.head(5).to_csv(index=False)
+
         prompt = (
-            "You are a senior financial analyst.\n"
-            "Use the provided financial data to answer clearly.\n"
-            "Respond using clean Markdown with headings and bullet points.\n"
-            "Avoid italics-heavy text.\n"
-            "Keep explanations concise and business-friendly.\n\n"
-            "Financial data (first 50 rows):\n"
-            f"{df_as_csv}\n\n"
-            "User question:\n"
+            "SYSTEM:\n"
+            "You are a financial analyst.\n"
+            "You must ONLY use the uploaded Excel data provided below.\n"
+            "Do NOT use any prior knowledge, dashboard data, or assumptions.\n"
+            "If the uploaded data is insufficient, clearly say so.\n\n"
+            "DATA SOURCE:\n"
+            "Uploaded Excel file (OneDrive or local upload).\n\n"
+            "DATA SUMMARY:\n"
+            f"- Columns: {cols}\n"
+            f"- Date range: {date_range_str}\n"
+            f"- Numeric totals:\n{numeric_totals_str}\n"
+            "- Sample (first 5 rows):\n"
+            f"{sample_csv}\n\n"
+            "If the question cannot be answered from the uploaded data, respond exactly: 'This question cannot be answered from the uploaded Excel data.'\n\n"
+            "USER QUESTION:\n"
             f"{normalized_q}"
         )
 
@@ -1053,6 +1072,7 @@ def main():
                          try:
                             st.session_state.data = ExcelHandler.load_data(source="upload", file_path=uploaded_file)
                             st.session_state.df = _pick_primary_df(st.session_state.data)
+                            st.session_state.uploaded_df = st.session_state.df
                             if st.session_state.data:
                                 st.success("File Processed Successfully")
                          except Exception as e:
@@ -1062,6 +1082,7 @@ def main():
                 else:
                     st.session_state.data = ExcelHandler.load_data(source="onedrive", onedrive_config={'url': onedrive_url, 'token': onedrive_token})
                     st.session_state.df = _pick_primary_df(st.session_state.data)
+                    st.session_state.uploaded_df = st.session_state.df
                     
                 if st.session_state.data and source_type != "Upload Excel File":
                     st.success("Data Loaded Successfully")
