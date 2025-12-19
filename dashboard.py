@@ -47,7 +47,7 @@ st.experimental_set_query_params = _shim_set_query_params
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import google.generativeai as genai
+from google import genai
 from financial_analyzer.microsoft_excel import ExcelHandler
 from financial_analyzer.analysis_modes import FinancialAnalyzer
 from financial_analyzer.forecast_engine import ForecastEngine
@@ -56,9 +56,6 @@ from financial_analyzer.render_layouts import render_overview, render_sales, ren
 from financial_analyzer.ai_insights_tab import render_ai_insights
 from financial_analyzer.auth import check_password
 import time
-
-# Configure Gemini API (ONCE at startup)
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 # Custom CSS for Premium Modern Design v2.0
 st.markdown("""
@@ -1077,13 +1074,19 @@ def main():
         # DEBUG: PROVE THIS TAB EXECUTES
         st.error("🚨 ENTERED AI INSIGHTS TAB 🚨")
         
-        # EXACT GEMINI TEST CODE
+        # EXACT GEMINI TEST CODE - NEW SDK
         st.subheader("🧪 Gemini Test")
         
         try:
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            response = model.generate_content("Say hello in one short sentence")
+            client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+            
+            response = client.models.generate_content(
+                model="models/gemini-1.5-flash",
+                contents="Say hello in one short sentence"
+            )
+            
             st.success(response.text)
+            
         except Exception as e:
             st.error(f"Gemini test failed: {e}")
     
