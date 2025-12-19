@@ -1,4 +1,5 @@
 import os
+import json
 import time
 import re
 import logging
@@ -96,6 +97,75 @@ def cached_generate_content(api_key_hash, model_name, prompt):
         logger.error('AI disabled or GEMINI_API_KEY missing')
         raise RuntimeError('AI disabled or GEMINI_API_KEY missing')
     return _cached_call(api_key_hash, model_name, prompt)
+
+
+def _is_question_relevant(question: str, insights: dict) -> bool:
+    """Simple relevance classifier: checks if question mentions known financial keywords
+    or any keys present in the insights dict. This is conservative by design.
+    """
+    if not question or not question.strip():
+        return False
+    q = question.lower()
+    # basic financial keywords
+    keywords = ['revenue', 'sales', 'profit', 'margin', 'cash', 'runway', 'ar', 'ap', 'payable', 'receivable', 'anomaly', 'forecast', 'expense', 'spend', 'liquidity']
+    if any(k in q for k in keywords):
+        return True
+    # fallback: check if any insight keys are mentioned
+    insight_keys = ' '.join(map(str, list(insights.keys()))) if isinstance(insights, dict) else ''
+    if any(k in q for k in insight_keys.lower().split()):
+        return True
+    return False
+
+
+def generate_llm_response(insights_dict: dict, user_question: str, model_name: str = 'gemini-2.0-flash'):
+    """Generate an LLM explanation based ONLY on the provided structured insights.
+
+    Guardrails:
+      - Do not infer data not present. If the question cannot be answered from
+        the insights_dict, returns a clear refusal message.
+      - Logs prompt and response (no secrets).
+    """
+    # Relevance check
+    if not _is_question_relevant(user_question, insights_dict):
+        return {'ok': False, 'text': 'This question cannot be answered from the available accounting data.'}
+
+    # Build strict prompt
+    try:
+        payload = json.dumps(insights_dict, default=str, indent=2)
+    except Exception:
+        payload = str(insights_dict)
+
+    instruction = (
+        "You are an assistant that ONLY explains already-computed financial insights.\n"
+        "Do not infer, estimate, or invent any numeric values not present in the data.\n"
+        "If the question cannot be answered from the provided insights, reply exactly: 'This question cannot be answered from the available accounting data.'\n"
+        "Keep answers concise and reference the specific field names when possible.\n\n"
+    )
+
+    prompt = instruction + f"Insights (JSON):\n{payload}\n\nUser question: {user_question.strip()}\n"
+
+    # Log prompt (without secrets)
+    logger.info(f"LLM prompt length={len(prompt)} question='{user_question.strip()[:120]}'")
+
+    # Validate environment
+    if genai is None or not os.getenv('GEMINI_API_KEY'):
+        logger.error('AI disabled or GEMINI_API_KEY missing for generate_llm_response')
+        return {'ok': False, 'text': 'AI not available in this environment.'}
+
+    api_key_hash = hash(os.getenv('GEMINI_API_KEY')) if os.getenv('GEMINI_API_KEY') else 0
+
+    try:
+        resp = cached_generate_content(api_key_hash, model_name, prompt)
+        # resp is dict with bullets + raw
+        text = resp.get('raw') if isinstance(resp, dict) else str(resp)
+        if not text or 'not enough' in (text or '').lower():
+            return {'ok': False, 'text': 'This question cannot be answered from the available accounting data.'}
+        # Log the short response
+        logger.info(f"LLM response length={len(text)}")
+        return {'ok': True, 'text': text, 'bullets': resp.get('bullets') if isinstance(resp, dict) else None}
+    except Exception as e:
+        logger.error(f"LLM generate error: {str(e)[:200]}")
+        return {'ok': False, 'text': 'AI call failed or returned no usable response.'}
 
 class AIAnalyst:
     """

@@ -114,3 +114,149 @@ def compute_dashboard_insights(df: pd.DataFrame) -> dict:
             insights["metadata"]["period"] = None
 
     return insights
+
+
+def calculate_health_score(insights_dict: dict) -> dict:
+    """Deterministic Business Health Score (0-100) based on insights_dict.
+
+    Inputs (expected keys in insights_dict):
+      - revenue_summary.total_revenue
+      - revenue_summary.top_stream.pct
+      - expense_summary.total_expenses
+      - margin_metrics.net_margin
+      - working_capital_metrics.runway_months
+      - data_quality_warnings (list)
+
+    Returns dict with:
+      - health_score (int)
+      - health_band (str)
+      - top_positive_factors (list)
+      - top_risks (list)
+    """
+    # Defaults
+    score = 0.0
+    positive = []
+    risks = []
+
+    rev = insights_dict.get('revenue_summary', {}) or {}
+    exp = insights_dict.get('expense_summary', {}) or {}
+    margin = insights_dict.get('margin_metrics', {}) or {}
+    wc = insights_dict.get('working_capital_metrics', {}) or {}
+    warnings = insights_dict.get('data_quality_warnings', []) or []
+
+    # Profitability (30%) - use net_margin as percent (e.g., 0.1 -> 10)
+    net_margin = margin.get('net_margin') if margin else None
+    if net_margin is None:
+        profit_score = 50.0
+    else:
+        try:
+            profit_pct = float(net_margin) * 100
+        except Exception:
+            profit_pct = float(net_margin or 0)
+        # Map profit % to 0..100 (clamped): 20%+ ->100, 0% ->50, negative ->0
+        if profit_pct >= 20:
+            profit_score = 100.0
+        elif profit_pct <= 0:
+            profit_score = max(0.0, 50.0 + profit_pct * 2.5)  # negative reduces below 50
+        else:
+            profit_score = 50.0 + (profit_pct / 20.0) * 50.0
+    score += 0.30 * profit_score
+    if profit_score > 70:
+        positive.append(f"Net margin {profit_pct:.1f}%")
+    if profit_score < 40:
+        risks.append(f"Low net margin {profit_pct:.1f}%")
+
+    # Revenue stability / concentration (20%) - penalize concentration
+    top = rev.get('top_stream') or {}
+    top_pct = top.get('pct') if isinstance(top, dict) else None
+    try:
+        top_pct = float(top_pct) if top_pct is not None else 0.0
+    except Exception:
+        top_pct = 0.0
+    # If top_pct > 50% -> low stability
+    if top_pct >= 0.5:
+        rev_score = 20.0
+        risks.append('High revenue concentration')
+    else:
+        rev_score = 100.0 - (top_pct * 100.0)  # more evenly distributed => higher
+        if rev_score > 70:
+            positive.append('Diverse revenue streams')
+    score += 0.20 * rev_score
+
+    # Expense discipline (20%) - lower expense/revenue ratio -> better
+    total_rev = float(rev.get('total_revenue') or 0.0)
+    total_exp = float(exp.get('total_expenses') or 0.0)
+    if total_rev > 0:
+        exp_ratio = total_exp / total_rev
+        # Map: exp_ratio 0.0 -> 100, 0.8 ->50, >1 ->0
+        if exp_ratio <= 0.2:
+            exp_score = 100.0
+        elif exp_ratio >= 1.0:
+            exp_score = 0.0
+        else:
+            exp_score = max(0.0, 100.0 - ((exp_ratio - 0.2) / 0.8) * 100.0)
+    else:
+        exp_score = 50.0
+    score += 0.20 * exp_score
+    if exp_score > 70:
+        positive.append('Controlled expense profile')
+    if exp_score < 40:
+        risks.append('High expense ratio')
+
+    # Liquidity (20%) - runway mapping
+    runway = wc.get('runway_months')
+    try:
+        runway = float(runway) if runway is not None else None
+    except Exception:
+        runway = None
+    if runway is None:
+        liq_score = 50.0
+    else:
+        if runway >= 12:
+            liq_score = 100.0
+        elif runway >= 6:
+            liq_score = 80.0
+        elif runway >= 3:
+            liq_score = 50.0
+        else:
+            liq_score = 10.0
+    score += 0.20 * liq_score
+    if liq_score >= 80:
+        positive.append(f"Runway {runway:.1f} months")
+    if liq_score < 40:
+        risks.append(f"Low runway {runway:.1f} months")
+
+    # Data quality confidence (10%) - fewer warnings -> higher
+    warnings_count = len(warnings) if warnings else 0
+    # Map: 0 warnings -> 100, 3+ warnings -> 20
+    if warnings_count == 0:
+        dq_score = 100.0
+    elif warnings_count >= 3:
+        dq_score = 20.0
+    else:
+        dq_score = 100.0 - (warnings_count / 3.0) * 80.0
+    score += 0.10 * dq_score
+    if dq_score > 70:
+        positive.append('High data confidence')
+    if dq_score < 40:
+        risks.append('Low data confidence')
+
+    final = int(max(0, min(100, round(score))))
+
+    if final >= 80:
+        band = 'Healthy'
+    elif final >= 60:
+        band = 'Watchlist'
+    else:
+        band = 'At Risk'
+
+    # Top factors: choose up to 3 positives and top 3 risks
+    top_positive = positive[:3]
+    top_risks = risks[:3]
+
+    return {
+        'health_score': final,
+        'health_band': band,
+        'top_positive_factors': top_positive,
+        'top_risks': top_risks
+    }

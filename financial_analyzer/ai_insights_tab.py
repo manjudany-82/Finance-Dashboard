@@ -9,7 +9,9 @@ import json
 import hashlib
 from financial_analyzer.analysis_modes import FinancialAnalyzer
 from financial_analyzer.render_layouts import _get_batched_insights
-from financial_analyzer.insights_core import calculate_health_score, categorize_insights
+from financial_analyzer.insights_core import categorize_insights, compute_financial_insights
+from financial_analyzer import metrics as metrics_module
+from financial_analyzer import llm_insights
 
 try:
     from google import genai
@@ -379,7 +381,9 @@ def render_ai_insights(dfs, ai, ai_enabled=True):
         insights_bundle = cached
     else:
         # Compute everything deterministically in Python
-        health_score = calculate_health_score(dfs)
+        fin_insights = compute_financial_insights(df)
+        health_info = metrics_module.calculate_health_score(fin_insights)
+        health_score = health_info.get('health_score', 0)
 
         # Key area summaries
         sales_res = FinancialAnalyzer.analyze_sales(dfs)
@@ -549,36 +553,22 @@ def render_ai_insights(dfs, ai, ai_enabled=True):
                 f"User question:\n{user_q.strip()}"
             )
 
-            # If Gemini not configured, show message
-            if genai is None:
-                st.error("Gemini SDK not available in this environment. Set up google-genai and configure API key.")
+            # Use centralized LLM helper which enforces guardrails
+            result = llm_insights.generate_llm_response(
+                {
+                    'business_health_score': insights_bundle.get('health_score'),
+                    'insights': insights_bundle.get('key_insights'),
+                    'anomalies': insights_bundle.get('anomalies'),
+                    'warnings': insights_bundle.get('warnings')
+                },
+                user_q or ''
+            )
+
+            if not result.get('ok'):
+                st.info(result.get('text') or 'This question cannot be answered from the available Excel data.')
             else:
-                try:
-                    client = genai.Client(api_key=ai.api_key if getattr(ai, 'api_key', None) else st.secrets.get('GEMINI_API_KEY'))
-                    resp = client.models.generate_content(
-                        model='gemini-2.0-flash',
-                        contents=prompt
-                    )
-                    text = getattr(resp, 'text', '') or str(resp)
-                    # If model tries to invent or says cannot answer, enforce contract message
-                    if not text.strip():
-                        st.info("This question cannot be answered from the available Excel data.")
-                    else:
-                        # Simple guard: if response contains 'not enough' or 'cannot', map to canonical message
-                        low = text.lower()
-                        if 'not enough' in low or 'cannot be answered' in low or 'insufficient' in low:
-                            st.info("This question cannot be answered from the available Excel data.")
-                        else:
-                            st.markdown(text)
-                            st.info("⚠ AI interpretation is based ONLY on the precomputed insights provided above.")
-                except Exception as e:
-                    msg = str(e)
-                    if '429' in msg or 'RESOURCE_EXHAUSTED' in msg:
-                        st.warning('AI quota exhausted — try again later.')
-                    elif '404' in msg:
-                        st.warning('AI model unavailable.')
-                    else:
-                        st.warning(f'AI call failed: {msg}')
+                st.markdown(result.get('text'))
+                st.info('⚠ AI interpretation is based ONLY on the precomputed insights provided above.')
 
 
 def _render_insight_card(title, bullets, color="#6366F1"):
