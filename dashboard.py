@@ -83,30 +83,33 @@ def run_gemini_test():
         st.warning("No financial data found. Please upload or load your data.")
         return
 
+    normalized_q = (user_question or "").strip()
+    greetings = {"hi", "hello", "hey", "hola"}
+    if len(normalized_q) < 10 or normalized_q.lower() in greetings:
+        st.info("👋 Ask a specific question about revenue, expenses, cash flow, or risks.")
+        return
+
     try:
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
         df_as_csv = df.head(50).to_csv(index=False)
-
         prompt = (
-            "You are a professional financial analyst.\n"
-            "Analyze the following financial data and answer the user's question.\n\n"
+            "You are a senior financial analyst.\n"
+            "Use the provided financial data to answer clearly.\n"
+            "Respond using clean Markdown with headings and bullet points.\n"
+            "Avoid italics-heavy text.\n"
+            "Keep explanations concise and business-friendly.\n\n"
             "Financial data (first 50 rows):\n"
             f"{df_as_csv}\n\n"
             "User question:\n"
-            f"{user_question}\n\n"
-            "Respond with:\n"
-            "- Clear answer\n"
-            "- Key insights\n"
-            "- Any risks or anomalies"
+            f"{normalized_q}"
         )
 
         response = client.models.generate_content(
             model="gemini-2.0-flash",
             contents=prompt
         )
-
-        st.success(response.text)
+        st.markdown(response.text)
 
     except Exception as e:
         st.error(f"Gemini test failed: {e}")
