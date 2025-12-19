@@ -11,6 +11,7 @@ from financial_analyzer.analysis_modes import FinancialAnalyzer
 from financial_analyzer.render_layouts import _get_batched_insights
 from financial_analyzer.insights_core import categorize_insights, compute_financial_insights
 from financial_analyzer import metrics as metrics_module
+from financial_analyzer.metrics import calculate_health_score_v2
 from financial_analyzer import llm_insights
 
 try:
@@ -382,8 +383,11 @@ def render_ai_insights(dfs, ai, ai_enabled=True):
     else:
         # Compute everything deterministically in Python
         fin_insights = compute_financial_insights(df)
+        # V2: deterministic explainable health score computed from the OneDrive-loaded DataFrame
+        v2_result = calculate_health_score_v2(df)
+        # Keep legacy health_info for compatibility but prefer v2_result for UI rendering
         health_info = metrics_module.calculate_health_score(fin_insights)
-        health_score = health_info.get('health_score', 0)
+        health_score = int(v2_result.get('score', health_info.get('health_score', 0)))
 
         # Key area summaries
         sales_res = FinancialAnalyzer.analyze_sales(dfs)
@@ -463,9 +467,12 @@ def render_ai_insights(dfs, ai, ai_enabled=True):
             drivers.append(f"Runway: {cash_res.get('runway_months'):.1f} months")
 
         insights_bundle = {
+            # surface V2 values as primary deterministic health indicators
             'health_score': health_score,
-            'health_status': ('Healthy' if health_score>=80 else 'Moderate Risk' if health_score>=60 else 'High Risk'),
-            'health_band': health_info.get('health_band') if isinstance(health_info, dict) else None,
+            'health_band': v2_result.get('band') or (health_info.get('health_band') if isinstance(health_info, dict) else None),
+            'health_v2_components': v2_result.get('components', {}),
+            'health_v2_positives': v2_result.get('positives', []),
+            'health_v2_risks': v2_result.get('risks', []),
             'top_positive_factors': health_info.get('top_positive_factors') if isinstance(health_info, dict) else [],
             'top_risks': health_info.get('top_risks') if isinstance(health_info, dict) else [],
             'drivers': drivers[:3],
@@ -480,25 +487,80 @@ def render_ai_insights(dfs, ai, ai_enabled=True):
         st.session_state['ai_insights_cache_key'] = fp
 
     # === Render UI Sections in order ===
-        # 1) Business Health Score (deterministic UI-only card)
-        hs = insights_bundle.get('health_score')
-        band_raw = insights_bundle.get('health_band') or insights_bundle.get('health_status')
-        # Map backend band values to business-friendly labels
-        band_map = {
-                'Healthy': 'Strong',
-                'Watchlist': 'Stable',
-                'At Risk': 'Risk',
-                'Healthy': 'Strong',
-                'Moderate Risk': 'Stable',
-                'High Risk': 'Risk'
+        # 1) Business Health Score (V2) - deterministic UI-only card with component breakdown
+        v2_score = insights_bundle.get('health_score', 0)
+        v2_band = insights_bundle.get('health_band', '')
+        components = insights_bundle.get('health_v2_components', {})
+        positives = insights_bundle.get('health_v2_positives') or insights_bundle.get('top_positive_factors') or insights_bundle.get('drivers') or []
+        risks = insights_bundle.get('health_v2_risks') or insights_bundle.get('top_risks') or []
+
+        # Band color mapping per spec
+        band_colors = {
+            'Excellent': '#10B981',
+            'Healthy': '#3B82F6',
+            'Watch': '#F59E0B',
+            'At Risk': '#EF4444'
         }
-        band_label = band_map.get(band_raw, band_raw or 'Risk')
+        band_color = band_colors.get(v2_band, '#6B7280')
 
-        positives = insights_bundle.get('top_positive_factors') or insights_bundle.get('drivers') or []
-        risks = insights_bundle.get('top_risks') or []
+        with st.container():
+            st.markdown(f"""
+            <div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:12px'>
+              <div style='flex:1'>
+                <h3 style='margin:0'>Business Health Score (V2)</h3>
+                <div style='font-size:38px;font-weight:800'>{int(v2_score)}/100</div>
+                <div style='margin-top:6px'>
+                  <span style='padding:6px 10px;border-radius:10px;background-color:{band_color};color:#ffffff;font-weight:700'>{v2_band}</span>
+                </div>
+              </div>
+              <div style='width:48%;padding-left:16px'>
+                <div style='font-size:14px;color:#6b7280'>Deterministic component breakdown</div>
+                <div style='margin-top:8px'>
+            """, unsafe_allow_html=True)
 
-        # Render the UI-only health card using deterministic values only
-        render_health_card(score=hs, band=band_label, positives=positives, risks=risks)
+            # Render components compactly with bars and notes
+            for key_label, comp in [('Revenue Trend', components.get('revenue_trend', {})),
+                                     ('Profitability', components.get('profitability', {})),
+                                     ('Cash Stability', components.get('cash_stability', {})),
+                                     ('Volatility', components.get('volatility', {}))]:
+                score_val = int(comp.get('score', 0) or 0)
+                note = comp.get('note', '') or ''
+                # tooltip titles per requirement
+                tooltip_map = {
+                    'Revenue Trend': 'Revenue Trend → growth/decline consistency',
+                    'Profitability': 'Profitability → margin strength & stability',
+                    'Cash Stability': 'Cash Stability → cash flow reliability',
+                    'Volatility': 'Volatility → penalty for large swings'
+                }
+                tooltip = tooltip_map.get(key_label, '')
+                # row
+                col1, col2 = st.columns([2, 1], gap='small')
+                with col1:
+                    st.markdown(f"**{key_label}** <span title='{tooltip}'>ℹ️</span>")
+                    st.progress(min(1.0, max(0.0, score_val / 100.0)))
+                with col2:
+                    st.markdown(f"**{score_val}**")
+                    if note:
+                        st.caption(note)
+
+            # Positives and Risks (two compact columns)
+            colp, colr = st.columns(2, gap='large')
+            with colp:
+                st.markdown("**What's working well**")
+                if positives:
+                    for p in positives[:5]:
+                        st.markdown(f"- {p}")
+                else:
+                    st.markdown("- No strong positives detected")
+            with colr:
+                st.markdown("**Risks to watch**")
+                if risks:
+                    for r in risks[:5]:
+                        st.markdown(f"- {r}")
+                else:
+                    st.markdown("- No immediate risks detected")
+
+            st.markdown("</div></div>", unsafe_allow_html=True)
         st.divider()
 
     # 2) Key Financial Insights

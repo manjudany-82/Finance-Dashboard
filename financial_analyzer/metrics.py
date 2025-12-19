@@ -260,3 +260,278 @@ def calculate_health_score(insights_dict: dict) -> dict:
         'top_positive_factors': top_positive,
         'top_risks': top_risks
     }
+
+
+def calculate_health_score_v2(df: pd.DataFrame) -> dict:
+    """Deterministic, explainable health score v2 computed from raw DataFrame.
+
+    Returns structure:
+    {
+      'score': int,
+      'band': str,
+      'components': { 'revenue_trend': {...}, 'profitability': {...}, 'cash_stability': {...}, 'volatility': {...} },
+      'positives': [...],
+      'risks': [...]
+    }
+    """
+    # Default low-result for missing input
+    result = {
+        'score': 0,
+        'band': 'At Risk',
+        'components': {
+            'revenue_trend': {'score': 0, 'note': 'Insufficient revenue data'},
+            'profitability': {'score': 0, 'note': 'Insufficient P&L data'},
+            'cash_stability': {'score': 0, 'note': 'No cash/balance series'},
+            'volatility': {'score': 0, 'note': 'Insufficient data for volatility'}
+        },
+        'positives': [],
+        'risks': []
+    }
+
+    if df is None or getattr(df, 'empty', True):
+        result['risks'].append('No accounting data')
+        return result
+
+    # Identify date and revenue columns
+    cols = [c.lower() for c in df.columns]
+    date_col = None
+    for c in df.columns:
+        if 'date' in c.lower():
+            date_col = c
+            break
+
+    # revenue column detection (heuristic)
+    revenue_col = None
+    for c in df.columns:
+        if any(k in c.lower() for k in ('revenue', 'sales', 'amount', 'turnover')) and pd.api.types.is_numeric_dtype(df[c]):
+            revenue_col = c
+            break
+
+    # expenses detection
+    expense_col = None
+    for c in df.columns:
+        if any(k in c.lower() for k in ('expense', 'cost', 'cogs', 'spend')) and pd.api.types.is_numeric_dtype(df[c]):
+            expense_col = c
+            break
+
+    # cash / balance detection
+    cash_col = None
+    for c in df.columns:
+        if any(k in c.lower() for k in ('cash', 'balance', 'bank', 'current_balance')) and pd.api.types.is_numeric_dtype(df[c]):
+            cash_col = c
+            break
+
+    positives = []
+    risks = []
+
+    # Revenue trend component (30%)
+    rev_score = 0
+    rev_note = ''
+    if revenue_col is None:
+        rev_note = 'Revenue column missing'
+        risks.append(rev_note)
+    else:
+        try:
+            if date_col:
+                tmp = df[[date_col, revenue_col]].dropna()
+                tmp[date_col] = pd.to_datetime(tmp[date_col], errors='coerce')
+                tmp = tmp.dropna(subset=[date_col])
+                if tmp.empty or len(tmp) < 4:
+                    # insufficient time series
+                    rev_note = 'Insufficient revenue time series'
+                    rev_score = 40
+                    risks.append(rev_note)
+                else:
+                    tmp = tmp.set_index(date_col).resample('M').sum()
+                    rev_ts = tmp[revenue_col]
+                    # compare recent 3 months vs prior 3 months
+                    if len(rev_ts) >= 6:
+                        recent = rev_ts[-3:].mean()
+                        prior = rev_ts[-6:-3].mean()
+                        if prior <= 0:
+                            pct = 0.0
+                        else:
+                            pct = (recent - prior) / prior * 100.0
+                        # map pct to 0..100 where >=10% ->100, 0% ->50, -10% ->0
+                        if pct >= 10:
+                            rev_score = 100
+                            rev_note = f'Revenue growing {pct:.1f}% vs prior period'
+                            positives.append(rev_note)
+                        elif pct <= -10:
+                            rev_score = 0
+                            rev_note = f'Revenue declining {pct:.1f}% vs prior period'
+                            risks.append(rev_note)
+                        else:
+                            rev_score = int(50 + (pct / 10.0) * 50)
+                            rev_note = f'Revenue change {pct:.1f}% vs prior period'
+                    else:
+                        # fallback: use slope of linear regression on months
+                        s = rev_ts.dropna()
+                        if len(s) >= 3:
+                            x = range(len(s))
+                            coeff = (pd.Series(s).iloc[-1] - pd.Series(s).iloc[0]) / max(1, len(s)-1)
+                            pct = (coeff / (pd.Series(s).mean() if pd.Series(s).mean() else 1)) * 100
+                            if pct >= 5:
+                                rev_score = 85
+                                positives.append('Revenue trending upward')
+                                rev_note = 'Revenue trending upward'
+                            elif pct <= -5:
+                                rev_score = 20
+                                risks.append('Revenue trending downward')
+                                rev_note = 'Revenue trending downward'
+                            else:
+                                rev_score = 50
+                                rev_note = 'Revenue stable'
+                        else:
+                            rev_score = 45
+                            rev_note = 'Limited revenue data'
+        except Exception:
+            rev_score = 40
+            rev_note = 'Error computing revenue trend'
+            risks.append(rev_note)
+
+    result['components']['revenue_trend'] = {'score': int(max(0, min(100, rev_score))), 'note': rev_note}
+
+    # Profitability component (30%)
+    prof_score = 0
+    prof_note = ''
+    if revenue_col is None or expense_col is None:
+        prof_note = 'Revenue or expense column missing'
+        prof_score = 35
+        risks.append(prof_note)
+    else:
+        try:
+            total_rev = float(df[revenue_col].sum())
+            total_exp = float(df[expense_col].sum())
+            if total_rev == 0:
+                prof_score = 30
+                prof_note = 'Zero revenue total'
+                risks.append(prof_note)
+            else:
+                net_margin = (total_rev - total_exp) / total_rev * 100.0
+                # Map margin: >=20% ->100, 0% ->50, -20% ->0
+                if net_margin >= 20:
+                    prof_score = 100
+                    positives.append(f'Net margin {net_margin:.1f}%')
+                    prof_note = f'Net margin {net_margin:.1f}%' 
+                elif net_margin <= -20:
+                    prof_score = 0
+                    risks.append(f'Net loss {net_margin:.1f}%')
+                    prof_note = f'Net loss {net_margin:.1f}%' 
+                else:
+                    prof_score = int(max(0, min(100, 50 + (net_margin / 20.0) * 50)))
+                    prof_note = f'Net margin {net_margin:.1f}%'
+        except Exception:
+            prof_score = 35
+            prof_note = 'Error computing profitability'
+            risks.append(prof_note)
+
+    result['components']['profitability'] = {'score': int(max(0, min(100, prof_score))), 'note': prof_note}
+
+    # Cash stability (20%)
+    cash_score = 0
+    cash_note = ''
+    if cash_col is None:
+        cash_note = 'No cash/balance column'
+        cash_score = 30
+        risks.append(cash_note)
+    else:
+        try:
+            series = df[cash_col].dropna().astype(float)
+            if series.empty:
+                cash_score = 30
+                cash_note = 'No cash observations'
+                risks.append(cash_note)
+            else:
+                mean = series.mean()
+                sd = series.std() if len(series) > 1 else 0.0
+                cv = abs(sd / mean) if mean != 0 else float('inf')
+                # scoring: mean positive and low cv => high
+                if mean >= 0 and cv <= 0.2:
+                    cash_score = 100
+                    cash_note = f'Cash positive (mean ${mean:,.0f}) stable'
+                    positives.append(cash_note)
+                elif mean >= 0 and cv <= 0.5:
+                    cash_score = 70
+                    cash_note = f'Cash positive but variable (cv {cv:.2f})'
+                elif mean >= 0:
+                    cash_score = 50
+                    cash_note = 'Cash positive but volatile'
+                else:
+                    cash_score = 10
+                    cash_note = f'Cash negative (mean ${mean:,.0f})'
+                    risks.append(cash_note)
+        except Exception:
+            cash_score = 30
+            cash_note = 'Error computing cash stability'
+            risks.append(cash_note)
+
+    result['components']['cash_stability'] = {'score': int(max(0, min(100, cash_score))), 'note': cash_note}
+
+    # Volatility (20%) - penalize large month-to-month swings in revenue
+    vol_score = 0
+    vol_note = ''
+    if revenue_col is None or date_col is None:
+        vol_note = 'Insufficient revenue/time data for volatility'
+        vol_score = 40
+        risks.append(vol_note)
+    else:
+        try:
+            tmp = df[[date_col, revenue_col]].dropna()
+            tmp[date_col] = pd.to_datetime(tmp[date_col], errors='coerce')
+            tmp = tmp.dropna(subset=[date_col])
+            ts = tmp.set_index(date_col).resample('M').sum()[revenue_col]
+            if ts.empty or len(ts) < 3:
+                vol_score = 50
+                vol_note = 'Insufficient series for volatility'
+            else:
+                pct = ts.pct_change().dropna()
+                if pct.empty:
+                    vol_score = 80
+                    vol_note = 'Low volatility'
+                else:
+                    mad = pct.abs().mean() * 100.0
+                    # map mad: <=5% ->100, >=30% ->0
+                    if mad <= 5:
+                        vol_score = 100
+                        vol_note = f'Low revenue volatility ({mad:.1f}% avg MoM)'
+                        positives.append(vol_note)
+                    elif mad >= 30:
+                        vol_score = 0
+                        vol_note = f'High revenue volatility ({mad:.1f}% avg MoM)'
+                        risks.append(vol_note)
+                    else:
+                        vol_score = int(max(0, min(100, 100 - ((mad - 5) / (30 - 5)) * 100)))
+                        vol_note = f'Revenue volatility {mad:.1f}% avg MoM'
+        except Exception:
+            vol_score = 40
+            vol_note = 'Error computing volatility'
+            risks.append(vol_note)
+
+    result['components']['volatility'] = {'score': int(max(0, min(100, vol_score))), 'note': vol_note}
+
+    # Weighted aggregation
+    final = (
+        0.30 * result['components']['revenue_trend']['score'] +
+        0.30 * result['components']['profitability']['score'] +
+        0.20 * result['components']['cash_stability']['score'] +
+        0.20 * result['components']['volatility']['score']
+    )
+    final_score = int(max(0, min(100, round(final))))
+
+    # Banding
+    if final_score >= 85:
+        band = 'Excellent'
+    elif final_score >= 75:
+        band = 'Healthy'
+    elif final_score >= 60:
+        band = 'Watch'
+    else:
+        band = 'At Risk'
+
+    result['score'] = final_score
+    result['band'] = band
+    result['positives'] = positives[:5]
+    result['risks'] = risks[:5]
+
+    return result
