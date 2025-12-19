@@ -1075,8 +1075,30 @@ def main():
         
         # MINIMAL TEST: No containers, no CSS, no conditions
         st.markdown("## 💬 Ask Your Financials (AI)")
-        st.text_input("Ask a question about your financials", key="force_ai_test")
-        st.success("✅ Ask Your Financials block rendered")
+        
+        # Gemini AI test call
+        question = st.text_input("Ask a question about your financials", key="force_ai_test")
+        
+        if question:
+            st.info(f"You asked: {question}")
+            
+            # Try to call Gemini API as a connectivity test
+            api_key = st.secrets.get("GEMINI_API_KEY", "")
+            
+            if not api_key:
+                st.warning("⚠️ GEMINI_API_KEY not configured in Streamlit secrets")
+            else:
+                try:
+                    import google.generativeai as genai
+                    genai.configure(api_key=api_key)
+                    model = genai.GenerativeModel("gemini-pro")
+                    response = model.generate_content(question)
+                    st.write("**Gemini Response:**")
+                    st.write(response.text)
+                except Exception as e:
+                    st.warning(f"⚠️ Gemini API error: {str(e)}")
+        else:
+            st.success("✅ Ask Your Financials block rendered")
     
     with tabs[2]: render_sales(dfs, ai, ai_enabled)
     with tabs[3]: render_ar(dfs, ai, ai_enabled)
