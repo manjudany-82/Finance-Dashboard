@@ -47,7 +47,7 @@ st.experimental_set_query_params = _shim_set_query_params
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from google import genai
+import google.generativeai as genai
 from financial_analyzer.microsoft_excel import ExcelHandler
 from financial_analyzer.analysis_modes import FinancialAnalyzer
 from financial_analyzer.forecast_engine import ForecastEngine
@@ -1082,11 +1082,9 @@ def main():
         
         if question:
             try:
-                client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
-                response = client.models.generate_content(
-                    model="models/gemini-1.5-flash",
-                    contents="Say hello in one sentence"
-                )
+                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                model = genai.GenerativeModel("gemini-1.5-flash")
+                response = model.generate_content("Say hello in one sentence")
                 st.success(response.text)
             except Exception as e:
                 st.error(f"Gemini test failed: {e}")
