@@ -561,6 +561,334 @@ def render_ai_insights(dfs, ai, ai_enabled=True):
                     st.markdown("- No immediate risks detected")
 
             st.markdown("</div></div>", unsafe_allow_html=True)
+        # === Executive Summary (AI) section (below V2 card) ===
+        # Data contract: only use calculate_health_score_v2 outputs, compute_financial_insights, and anomalies from the OneDrive DF
+        # Cache key for exec summary per data fingerprint
+        exec_cache = st.session_state.get('exec_summary_cache', {})
+        exec_cached_key = exec_cache.get('key')
+        if exec_cached_key == fp and exec_cache.get('value'):
+            exec_text = exec_cache['value']
+        else:
+            # Build structured input strictly from deterministic sources
+            structured = {
+                'score': int(insights_bundle.get('health_score', 0)),
+                'band': insights_bundle.get('health_band'),
+                'revenue_trend': components.get('revenue_trend', {}),
+                'profitability': components.get('profitability', {}),
+                'cash_stability': components.get('cash_stability', {}),
+                'volatility': components.get('volatility', {}),
+                'positives': list(positives)[:5],
+                'risks': list(risks)[:5],
+                'anomalies': insights_bundle.get('anomalies', [])
+            }
+
+            # Rule-based deterministic summary (fallback and baseline)
+            try:
+                s = structured['score']
+                band = structured.get('band') or ''
+                overall = f"Overall: Business Health Score {s}/100 — {band}."
+
+                if structured['positives']:
+                    positives_txt = '; '.join(structured['positives'][:2])
+                    working = f"What's working: {positives_txt}."
+                else:
+                    working = "What's working: No strong positives detected from recent financials."
+
+                if structured['risks']:
+                    risks_txt = '; '.join(structured['risks'][:2])
+                    risks_sentence = f"Risks: {risks_txt}."
+                elif structured['anomalies']:
+                    risks_sentence = "Risks: Recent anomalies detected in revenue or other accounts."
+                else:
+                    risks_sentence = "Risks: No immediate risks detected."
+
+                rule_summary = ' '.join([overall, working, risks_sentence])
+            except Exception:
+                rule_summary = "Executive summary unavailable due to data formatting."
+
+            # Prefer LLM rephrase only if GEMINI key present and structured non-empty
+            exec_text = rule_summary
+            try:
+                import os
+                if os.getenv('GEMINI_API_KEY'):
+                    non_empty = any([structured.get('score') is not None, structured.get('anomalies'), structured.get('positives'), structured.get('risks')])
+                    if non_empty:
+                        user_q = "Write a concise 3-sentence executive summary of the business health using ONLY the provided structured insights. Keep deterministic phrasing first."
+                        llm_resp = llm_insights.generate_llm_response(structured, user_q)
+                        if llm_resp.get('ok') and llm_resp.get('text'):
+                            exec_text = llm_resp.get('text').strip()
+            except Exception:
+                exec_text = rule_summary
+
+            # Cache per data fingerprint
+            st.session_state['exec_summary_cache'] = {'key': fp, 'value': exec_text}
+
+        # Render Executive Summary container
+        with st.container():
+            st.markdown("<div style='background-color:#fbfbff;border:1px solid #e6e6f0;padding:12px;border-radius:8px'>", unsafe_allow_html=True)
+            st.markdown("### 🧠 Executive Summary (AI)")
+            st.caption("Plain-English interpretation of your financial performance")
+            st.write(exec_text)
+            st.markdown("*Generated from your OneDrive financials*")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # === ⚠️ Top Risks & Early Warnings ===
+        # Must derive risks only from deterministic sources (v2, compute_financial_insights, anomalies)
+        # Recompute deterministic inputs (do not rely on cached UI state)
+        try:
+            fresh_fin_insights = compute_financial_insights(df)
+        except Exception:
+            fresh_fin_insights = {}
+
+        try:
+            fresh_v2 = calculate_health_score_v2(df)
+        except Exception:
+            fresh_v2 = {'components': {}, 'risks': [], 'score': 0, 'band': None}
+
+        try:
+            fresh_anoms_df = FinancialAnalyzer.detect_anomalies(dfs, spike_threshold, drop_threshold, z_threshold)
+        except Exception:
+            fresh_anoms_df = pd.DataFrame()
+
+        normalized = []
+
+        # Helper to add normalized risk (avoid duplicates by title)
+        def _add_risk(risk):
+            if not any(r['title'] == risk['title'] for r in normalized):
+                normalized.append(risk)
+
+        comps = fresh_v2.get('components', {})
+
+        # Revenue decline
+        rev = comps.get('revenue_trend', {})
+        rev_score = int(rev.get('score', 0) or 0)
+        rev_note = rev.get('note', '') or ''
+        if rev_score <= 30 or 'declin' in rev_note.lower() or 'drop' in rev_note.lower():
+            _add_risk({
+                'id': 'revenue_decline',
+                'title': 'Declining revenue trend',
+                'severity': 'High',
+                'explanation': rev_note or 'Recent revenue trend indicates decline',
+                'metric_source': 'revenue_trend'
+            })
+
+        # Volatility
+        vol = comps.get('volatility', {})
+        vol_score = int(vol.get('score', 0) or 0)
+        vol_note = vol.get('note', '') or ''
+        if vol_score <= 30 or 'volatil' in vol_note.lower() or 'swing' in vol_note.lower():
+            sev = 'High' if vol_score <= 20 else 'Medium'
+            _add_risk({
+                'id': 'revenue_volatility',
+                'title': 'High revenue volatility',
+                'severity': sev,
+                'explanation': vol_note or 'Revenue shows large month-to-month swings',
+                'metric_source': 'volatility'
+            })
+
+        # Profitability / margin compression
+        prof = comps.get('profitability', {})
+        prof_score = int(prof.get('score', 0) or 0)
+        prof_note = prof.get('note', '') or ''
+        if prof_score <= 40 or 'loss' in prof_note.lower() or 'net loss' in prof_note.lower():
+            sev = 'High' if 'loss' in prof_note.lower() or prof_score <= 20 else 'Medium'
+            _add_risk({
+                'id': 'margin_compression',
+                'title': 'Margin compression / low profitability',
+                'severity': sev,
+                'explanation': prof_note or 'Profitability is weak or declining',
+                'metric_source': 'profitability'
+            })
+
+        # Cash stability
+        cash = comps.get('cash_stability', {})
+        cash_score = int(cash.get('score', 0) or 0)
+        cash_note = cash.get('note', '') or ''
+        if cash_score <= 40 or 'negative' in cash_note.lower():
+            sev = 'High' if 'negative' in cash_note.lower() or cash_score <= 20 else 'Medium'
+            _add_risk({
+                'id': 'cash_instability',
+                'title': 'Unstable cash position',
+                'severity': sev,
+                'explanation': cash_note or 'Cash balance or stability is a concern',
+                'metric_source': 'cash_stability'
+            })
+
+        # Add v2 explicit risks strings as Low unless detected above
+        for rstr in (fresh_v2.get('risks') or [])[:5]:
+            title = rstr if len(rstr) < 60 else rstr[:57] + '...'
+            _add_risk({
+                'id': f'v2_text_{hash(rstr)}',
+                'title': title,
+                'severity': 'Low',
+                'explanation': rstr,
+                'metric_source': 'v2_risks'
+            })
+
+        # Add anomalies from data (each anomaly is Low/Medium/High depending on magnitude)
+        if not fresh_anoms_df.empty:
+            for _, ar in fresh_anoms_df.iterrows():
+                try:
+                    pct = float(ar.get('MoM_Growth_Pct', 0))
+                except Exception:
+                    pct = 0
+                sev = 'Low'
+                if abs(pct) >= 50:
+                    sev = 'High'
+                elif abs(pct) >= 20:
+                    sev = 'Medium'
+                title = f"Anomaly: {ar.get('Product')} {ar.get('Month')}"
+                expl = f"{ar.get('Anomaly_Type')} {pct:+.1f}% (${float(ar.get('Revenue',0)) if pd.notna(ar.get('Revenue',None)) else 0:,.0f})"
+                _add_risk({
+                    'id': f'anom_{hash((ar.get("Product"), ar.get("Month")))}',
+                    'title': title,
+                    'severity': sev,
+                    'explanation': expl,
+                    'metric_source': 'anomaly'
+                })
+
+        # Sort by severity (High > Medium > Low) and cap to top 5
+        severity_rank = {'High': 3, 'Medium': 2, 'Low': 1}
+        normalized.sort(key=lambda x: (-severity_rank.get(x.get('severity', 'Low'), 1), x.get('title')))
+        normalized = normalized[:5]
+
+        # Optional LLM rephrase for explanations (must not change severity or add risks)
+        rephrased = []
+        try:
+            import os
+            allow_llm = bool(os.getenv('GEMINI_API_KEY'))
+        except Exception:
+            allow_llm = False
+
+        for r in normalized:
+            explanation = r['explanation']
+            if allow_llm and explanation:
+                try:
+                    q = "Rephrase this one-line factual explanation for clarity, without changing severity or adding new information: '" + explanation + "'"
+                    resp = llm_insights.generate_llm_response({'title': r['title'], 'severity': r['severity'], 'explanation': explanation}, q)
+                    if resp.get('ok') and resp.get('text'):
+                        # Use the LLM text but keep severity unchanged
+                        r['explanation'] = resp.get('text').strip()
+                except Exception:
+                    pass
+            rephrased.append(r)
+
+        # Render risk card
+        if not rephrased:
+            st.success("No critical financial risks detected based on current data.")
+        else:
+            with st.container():
+                st.markdown("### ⚠️ Top Risks & Early Warnings")
+                st.markdown("<div style='background-color:#fff7f5;border:1px solid #ffe6e0;padding:10px;border-radius:8px'>", unsafe_allow_html=True)
+                for r in rephrased:
+                    color = '#ef4444' if r['severity'] == 'High' else '#f59e0b' if r['severity'] == 'Medium' else '#6b7280'
+                    st.markdown(f"<div style='display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f3f4f6'>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='flex:1'><strong>{r['title']}</strong><div style='color:#374151;font-size:13px'>{r['explanation']}</div></div><div style='margin-left:12px'><span style='background:{color};color:#fff;padding:6px 8px;border-radius:8px;font-weight:700'>{r['severity']}</span></div>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+                st.caption("Based on analysis of your OneDrive financial data")
+        # End risks
+        st.divider()
+
+        # === 🎯 Focus Areas & Next Actions (30–60 days) ===
+        # Placement: immediately below risks. Deterministic mapping from v2 and normalized risks only.
+        # Guardrail: require df present
+        if df is None or getattr(df, 'empty', True):
+            st.info("Connect financial data to see priority actions.")
+            return
+
+        # Build actions from deterministic signals
+        actions = []
+
+        # Helper to append unique action by title
+        def _add_action(title, explanation, category):
+            if not any(a['title'] == title for a in actions):
+                actions.append({'title': title, 'explanation': explanation, 'category': category})
+
+        # Use fresh_v2 components and rephrased risks from above if available
+        v2_comps = fresh_v2.get('components', {}) if 'fresh_v2' in locals() else {}
+
+        # Rule mappings
+        # Declining revenue -> Stabilize revenue sources
+        rev_comp = v2_comps.get('revenue_trend', {})
+        rev_score = int(rev_comp.get('score', 0) or 0)
+        if any(r.get('id') == 'revenue_decline' for r in normalized) or rev_score <= 40:
+            _add_action(
+                'Stabilize revenue sources',
+                'Prioritize securing consistent revenue: focus on highest-performing products, re-evaluate pricing where downward trends are evident, and monitor month-over-month sales.',
+                'Revenue'
+            )
+
+        # High volatility -> Tighten forecasting & monthly tracking
+        vol_comp = v2_comps.get('volatility', {})
+        vol_score = int(vol_comp.get('score', 0) or 0)
+        if any(r.get('id') == 'revenue_volatility' for r in normalized) or vol_score <= 50:
+            _add_action(
+                'Tighten forecasting & monthly tracking',
+                'Increase cadence of revenue and cash forecasts, track key drivers monthly, and flag large month-to-month swings for review.',
+                'Risk Monitoring'
+            )
+
+        # Margin compression -> Review pricing and cost structure
+        prof_comp = v2_comps.get('profitability', {})
+        prof_score = int(prof_comp.get('score', 0) or 0)
+        if any(r.get('id') == 'margin_compression' for r in normalized) or prof_score <= 50:
+            _add_action(
+                'Review pricing and cost structure',
+                'Assess product-level margins and controllable expenses; consider targeted price adjustments or cost reductions where margins have compressed.',
+                'Costs'
+            )
+
+        # Cash instability -> Preserve liquidity
+        cash_comp = v2_comps.get('cash_stability', {})
+        cash_score = int(cash_comp.get('score', 0) or 0)
+        if any(r.get('id') == 'cash_instability' for r in normalized) or cash_score <= 45:
+            _add_action(
+                'Preserve liquidity & defer non-essential spend',
+                'Prioritize actions that conserve cash and extend runway, postponing discretionary investments until stability improves.',
+                'Cash'
+            )
+
+        # If no actions detected, provide monitoring action
+        if not actions:
+            _add_action(
+                'Maintain monitoring cadence',
+                'No major signals detected; continue regular monitoring of revenue, margins, and cash, and revisit if trends change.',
+                'Risk Monitoring'
+            )
+
+        # Cap at 4 items
+        actions = actions[:4]
+
+        # Optional LLM rephrase for clarity only
+        try:
+            import os
+            allow_llm = bool(os.getenv('GEMINI_API_KEY'))
+        except Exception:
+            allow_llm = False
+
+        rephrased_actions = []
+        for act in actions:
+            expl = act['explanation']
+            if allow_llm and expl:
+                try:
+                    q = "Rephrase this 1-2 sentence action for clarity without adding new recommendations or numeric targets: '" + expl + "'"
+                    resp = llm_insights.generate_llm_response({'title': act['title'], 'explanation': expl, 'category': act['category']}, q)
+                    if resp.get('ok') and resp.get('text'):
+                        expl = resp.get('text').strip()
+                except Exception:
+                    pass
+            rephrased_actions.append({'title': act['title'], 'explanation': expl, 'category': act['category']})
+
+        # Render the numbered action list
+        with st.container():
+            st.markdown('### 🎯 Focus Areas & Next Actions (30–60 days)')
+            st.markdown("<div style='padding:6px 0 0 0'>", unsafe_allow_html=True)
+            for i, a in enumerate(rephrased_actions, start=1):
+                st.markdown(f"**{i}. {a['title']}** — {a['explanation']}  ")
+                st.caption(f"Category: {a['category']}")
+            st.markdown("</div>", unsafe_allow_html=True)
+            st.caption('Suggested priorities based on current financial signals')
         st.divider()
 
     # 2) Key Financial Insights
