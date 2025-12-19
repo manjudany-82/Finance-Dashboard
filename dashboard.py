@@ -57,20 +57,49 @@ from financial_analyzer.ai_insights_tab import render_ai_insights
 from financial_analyzer.auth import check_password
 import time
 
-# Gemini test function using NEW SDK
+# Gemini Q&A function using NEW SDK and real user question
 def run_gemini_test():
     st.subheader("🧪 Gemini Test")
-    
+
+    user_question = st.text_input("Ask a question about your financials", key="ai_insights_question")
+    submit = st.button("Submit", key="ai_insights_submit")
+
+    if not submit:
+        return
+
     try:
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
-        
+
+        if "df" not in globals() or "df" not in locals():
+            st.warning("⚠️ No financial data found (df is undefined). Please upload or load your data.")
+            return
+
+        if df.empty:
+            st.warning("⚠️ Your financial data is empty. Please upload data before asking questions.")
+            return
+
+        df_as_csv = df.head(50).to_csv(index=False)
+
+        prompt = (
+            "You are a professional financial analyst.\n"
+            "Analyze the following financial data and answer the user's question.\n\n"
+            "Financial data (first 50 rows):\n"
+            f"{df_as_csv}\n\n"
+            "User question:\n"
+            f"{user_question}\n\n"
+            "Respond with:\n"
+            "- Clear answer\n"
+            "- Key insights\n"
+            "- Any risks or anomalies"
+        )
+
         response = client.models.generate_content(
             model="gemini-2.0-flash",
-            contents="Say hello in one sentence"
+            contents=prompt
         )
-        
+
         st.success(response.text)
-        
+
     except Exception as e:
         st.error(f"Gemini test failed: {e}")
 
