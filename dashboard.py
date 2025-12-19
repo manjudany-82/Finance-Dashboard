@@ -89,6 +89,12 @@ def run_gemini_test():
         st.info("👋 Ask a specific question about revenue, expenses, cash flow, or risks.")
         return
 
+    # Simple cooldown to avoid rapid repeat calls (20s)
+    last_ts = st.session_state.get("last_gemini_call_ts", 0)
+    if time.time() - last_ts < 20:
+        st.warning("⏳ Please wait a few seconds before asking another question.")
+        return
+
     try:
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
@@ -109,10 +115,15 @@ def run_gemini_test():
             model="gemini-2.0-flash",
             contents=prompt
         )
+        st.session_state["last_gemini_call_ts"] = time.time()
         st.markdown(response.text)
 
     except Exception as e:
-        st.error(f"Gemini test failed: {e}")
+        msg = str(e)
+        if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+            st.warning("⚠️ AI is temporarily busy due to usage limits.\nPlease wait a minute and try again.")
+        else:
+            st.warning(f"Gemini error: {msg}")
 
 # Custom CSS for Premium Modern Design v2.0
 st.markdown("""
