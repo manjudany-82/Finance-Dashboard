@@ -45,6 +45,7 @@ def _shim_set_query_params(**kwargs):
 st.experimental_get_query_params = _shim_get_query_params
 st.experimental_set_query_params = _shim_set_query_params
 import pandas as pd
+import json
 import plotly.express as px
 import plotly.graph_objects as go
 from google import genai
@@ -67,15 +68,129 @@ def _pick_primary_df(data):
                 return value
     return None
 
-# Gemini Q&A function (OneDrive-only, model locked)
+def compute_dashboard_insights(df: pd.DataFrame) -> dict:
+    """Compute deterministic metrics and anomalies from the OneDrive DataFrame.
+
+    This function is the authoritative Python Metrics Engine. All numeric metrics
+    are computed here and passed to Gemini for interpretation only.
+    """
+    insights = {
+        "revenue": {},
+        "expenses": {},
+        "profitability": {},
+        "anomalies": [],
+        "metadata": {
+            "period": None,
+            "source": "OneDrive Excel",
+            "accounting_method": "Accrual"
+        }
+    }
+
+    # Metadata
+    insights["metadata"]["row_count"] = len(df)
+    insights["metadata"]["columns"] = list(df.columns)
+
+    # Heuristic detection of revenue/expense columns
+    revenue_cols = [c for c in df.columns if any(k in c.lower() for k in ("revenue", "sales", "turnover"))]
+    expense_cols = [c for c in df.columns if any(k in c.lower() for k in ("expense", "cost", "cogs", "fee", "fees"))]
+
+    numeric = df.select_dtypes(include="number")
+
+    # Revenue totals
+    if revenue_cols:
+        rev_totals = {c: float(df[c].sum()) for c in revenue_cols}
+        total_revenue = sum(rev_totals.values())
+    else:
+        # fallback: pick numeric column with largest positive sum
+        if not numeric.empty:
+            sums = numeric.sum(numeric_only=True)
+            candidate = sums[sums > 0]
+            if not candidate.empty:
+                top_col = candidate.idxmax()
+                rev_totals = {top_col: float(candidate.max())}
+                total_revenue = float(candidate.max())
+            else:
+                rev_totals = {}
+                total_revenue = 0.0
+        else:
+            rev_totals = {}
+            total_revenue = 0.0
+
+    insights["revenue"]["totals"] = rev_totals
+    insights["revenue"]["total_revenue"] = total_revenue
+
+    # Top revenue stream
+    if rev_totals:
+        top_stream = max(rev_totals.items(), key=lambda x: x[1])
+        insights["revenue"]["top_stream"] = {"name": top_stream[0], "value": top_stream[1], "pct": (top_stream[1] / total_revenue) if total_revenue else None}
+    else:
+        insights["revenue"]["top_stream"] = None
+
+    # Expenses
+    if expense_cols:
+        exp_totals = {c: float(df[c].sum()) for c in expense_cols}
+        total_expenses = sum(exp_totals.values())
+    else:
+        exp_totals = {}
+        total_expenses = 0.0
+
+    insights["expenses"]["totals"] = exp_totals
+    insights["expenses"]["total_expenses"] = total_expenses
+
+    # Profitability metrics
+    insights["profitability"]["gross_margin"] = None
+    insights["profitability"]["net_margin"] = None
+    cogs_cols = [c for c in df.columns if "cog" in c.lower() or "cost of goods" in c.lower()]
+    if cogs_cols and total_revenue:
+        cogs = sum(float(df[c].sum()) for c in cogs_cols)
+        gross = total_revenue - cogs
+        insights["profitability"]["gross_margin"] = gross / total_revenue
+
+    if total_revenue:
+        net = total_revenue - total_expenses
+        insights["profitability"]["net_margin"] = net / total_revenue
+
+    # Anomalies detection (Python only)
+    anomalies = []
+    if insights["revenue"]["top_stream"] and insights["revenue"]["top_stream"]["pct"] is not None:
+        if insights["revenue"]["top_stream"]["pct"] > 0.5:
+            anomalies.append({"type": "concentration", "detail": f"Top revenue stream {insights['revenue']['top_stream']['name']} >50%"})
+
+    for col, s in numeric.sum(numeric_only=True).items():
+        if s == 0:
+            anomalies.append({"type": "zero_total", "detail": f"Column {col} sums to zero"})
+        if s < 0:
+            anomalies.append({"type": "negative_total", "detail": f"Column {col} has negative total: {s}"})
+
+    mgmt_cols = [c for c in df.columns if "management fee" in c.lower() or "management" in c.lower()]
+    if mgmt_cols and total_revenue:
+        mgmt_total = sum(float(df[c].sum()) for c in mgmt_cols)
+        if mgmt_total > 0.2 * total_revenue:
+            anomalies.append({"type": "high_fixed_cost", "detail": f"Management fees {mgmt_total} exceed 20% of revenue"})
+
+    insights["anomalies"] = anomalies
+
+    # Period detection (best-effort)
+    if any("date" in c.lower() for c in df.columns):
+        try:
+            date_col = next(c for c in df.columns if "date" in c.lower())
+            min_d = pd.to_datetime(df[date_col], errors="coerce").min()
+            max_d = pd.to_datetime(df[date_col], errors="coerce").max()
+            insights["metadata"]["period"] = f"{min_d} to {max_d}"
+        except Exception:
+            insights["metadata"]["period"] = None
+
+    return insights
+
+
 def run_gemini_test():
     st.subheader("🧪 Gemini Test")
 
+    # Data guard: AI may only use OneDrive-loaded dataframe stored in st.session_state['df']
+    df = st.session_state.get("df")
+
     user_question = st.text_input("Ask a question about your financials", key="ai_insights_question")
     submit = st.button("Submit", key="ai_insights_submit")
-
-    # Data guard: AI may only use OneDrive-loaded dataframe
-    df = st.session_state.get("df")
 
     if not submit:
         return
@@ -90,61 +205,75 @@ def run_gemini_test():
         st.info("👋 Ask a specific question about revenue, expenses, cash flow, or risks.")
         return
 
-    # Simple cooldown to avoid rapid repeat calls (20s)
+    # Cooldown guard
     last_ts = st.session_state.get("last_gemini_call_ts", 0)
     if time.time() - last_ts < 20:
         st.warning("⏳ Please wait a few seconds before asking another question.")
         return
 
+    # Check for unsupported question topics (avoid calling Gemini if data missing)
+    lower_cols = [c.lower() for c in df.columns]
+    unsupported_terms = [
+        ("cash flow", ["cash", "cashflow"]),
+        ("balance sheet", ["assets", "liabilities", "equity", "balance"]),
+        ("accounts receivable", ["ar", "accounts receivable"])
+    ]
+    ql = normalized_q.lower()
+    for term, keys in unsupported_terms:
+        if term in ql and not any(k in " ".join(lower_cols) for k in keys):
+            st.warning("This question cannot be answered because the OneDrive Excel data does not contain the required fields.")
+            return
+
     try:
+        # Metrics engine: compute dashboard_insights deterministically in Python
+        dashboard_insights = compute_dashboard_insights(df)
+
+        # System prompt (fixed)
+        system_prompt = (
+            "You are a financial analyst AI.\n"
+            "Use ONLY the provided insights and metadata.\n"
+            "Do NOT assume missing values.\n"
+            "Do NOT reference dashboards or prior analyses.\n"
+            "Explain implications, risks, and anomalies clearly.\n"
+            "If the data does not support the question, say so explicitly.\n"
+            "Do NOT calculate totals or ratios; use only provided metrics.\n"
+        )
+
+        # Business context and structured payload
+        business_context = (
+            "Business context:\n"
+            "- Statement type: Profit & Loss\n"
+            f"- Period: {dashboard_insights.get('metadata', {}).get('period')}\n"
+            "- Source: OneDrive Excel\n\n"
+        )
+
+        insights_json = json.dumps(dashboard_insights, indent=2, default=str)
+
+        user_payload = (
+            f"{business_context}Dashboard insights:\n{insights_json}\n\nUser question:\n{normalized_q}\n\n"
+            "Output format: Provide Summary Interpretation, Key Insights, Risks & Anomalies, Follow-up Questions (if applicable), and Data Scope & Warnings."
+        )
+
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
-        # Build deterministic, OneDrive-only context (no dashboard or cached data)
-        row_count = len(df)
-        cols = list(df.columns)
-        numeric_totals = df.select_dtypes(include="number").sum(numeric_only=True)
-        numeric_totals_str = numeric_totals.to_string() if not numeric_totals.empty else "(no numeric totals)"
-        date_cols = df.select_dtypes(include=["datetime", "datetime64[ns]"]) if hasattr(df, "select_dtypes") else None
-        date_range_str = "(no date columns)"
-        if date_cols is not None and not date_cols.empty:
-            mins = date_cols.min().min()
-            maxs = date_cols.max().max()
-            if pd.notna(mins) and pd.notna(maxs):
-                date_range_str = f"{mins} to {maxs}"
-        sample_txt = df.head(5).to_string(index=False)
-
-        prompt = (
-            "SYSTEM:\n"
-            "You are a financial analyst. Answer ONLY using the provided Excel data. If the answer cannot be derived from the data, say so explicitly.\n"
-            "You MUST base your analysis ONLY on the OneDrive Excel data provided below.\n"
-            "Do NOT use dashboard data, cached summaries, prior AI responses, or assumptions.\n"
-            "If information is missing, explicitly say so.\n\n"
-            "DATA SOURCE:\n"
-            "OneDrive Excel (static link)\n\n"
-            "DATA SUMMARY:\n"
-            "- File source: OneDrive\n"
-            f"- Row count: {row_count}\n"
-            f"- Column names: {cols}\n"
-            f"- Date range: {date_range_str}\n"
-            f"- Aggregated totals for numeric columns:\n{numeric_totals_str}\n"
-            "- First 5 rows (plain text):\n"
-            f"{sample_txt}\n\n"
-            "If the question cannot be answered from this data, respond exactly: 'This question cannot be answered from the uploaded Excel data.'\n\n"
-            "USER QUESTION:\n"
-            f"{normalized_q}"
-        )
-
+        # Model is locked to gemini-2.0-flash (no UI override)
         response = client.models.generate_content(
             model="gemini-2.0-flash",
-            contents=prompt
+            contents=f"SYSTEM:\n{system_prompt}\n\n{user_payload}"
         )
+
         st.session_state["last_gemini_call_ts"] = time.time()
+
+        # Render the AI interpretation; Gemini must not calculate metrics
         st.markdown(response.text)
+
+        # Mandatory appended warning for audit safety
+        st.info("⚠ This analysis is based solely on the connected OneDrive Excel data. No dashboard widgets, cached values, or prior AI responses were used.")
 
     except Exception as e:
         msg = str(e)
         if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
-            st.warning("⚠️ AI is temporarily busy due to usage limits.\nPlease wait a minute and try again.")
+            st.warning("⚠️ AI is temporarily busy due to usage limits. Please wait a minute and try again.")
         elif "404" in msg:
             st.warning("⚠️ AI model is unavailable. Please contact support if this persists.")
         else:

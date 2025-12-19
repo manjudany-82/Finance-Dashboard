@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import streamlit as st
 
 try:
-    import google.generativeai as genai
+    from google import genai
 except Exception:
     genai = None
 
@@ -33,16 +33,41 @@ def cached_generate_content(api_key_hash, model_name, prompt):
     Optimized parser for faster response extraction.
     """
     if genai is None:
-        logger.error("google.generativeai library not available")
-        raise RuntimeError("google.generativeai library not available")
+        logger.error("google-genai library not available")
+        raise RuntimeError("google-genai library not available")
 
     # Reconstruct actual API key from environment (hash is for cache key only)
     api_key = os.getenv('GEMINI_API_KEY')
     logger.info(f"LLM request: model={model_name} prompt_len={len(prompt)}")
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name)
-    response = model.generate_content(prompt)
-    text = (response.text or "").strip()
+    client = genai.Client(api_key=api_key)
+    try:
+        response = client.models.generate_content(model=model_name, contents=prompt)
+    except Exception as e:
+        logger.error(f"LLM call error: {e}")
+        raise
+
+    # Defensive extraction of text
+    text = ''
+    try:
+        text = getattr(response, 'text', '') or ''
+    except Exception:
+        text = ''
+    if not text:
+        try:
+            # try candidate path
+            cand = getattr(response, 'candidates', None)
+            if cand and len(cand) > 0:
+                first = cand[0]
+                text = getattr(first, 'content', None)
+                if isinstance(text, list) and len(text) > 0:
+                    # content items may have .text
+                    item = text[0]
+                    text = getattr(item, 'text', '') or str(item)
+                else:
+                    text = str(first)
+        except Exception:
+            text = str(response)
+    text = (text or '').strip()
 
     # Optimized bullet extraction with single-pass parsing
     lines = text.splitlines()
@@ -81,16 +106,8 @@ class AIAnalyst:
         # diagnostics
         self.last_raw = None
         self.last_error = None
-        if self.api_key:
-            try:
-                # Configure the client; don't bind to a single model here — selection happens per-call
-                genai.configure(api_key=self.api_key)
-                # Leave self.model unset; we'll attempt to use preferred candidate lists per request
-            except Exception as e:
-                logger.warning(f"Error configuring generative AI client: {e}")
-
         if not genai:
-            logger.warning("google.generativeai library not available.")
+            logger.warning("google-genai library not available.")
         self.quota_exhausted = False
 
 
