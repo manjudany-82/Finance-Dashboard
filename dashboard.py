@@ -57,6 +57,9 @@ from financial_analyzer.ai_insights_tab import render_ai_insights
 from financial_analyzer.auth import check_password
 import time
 
+# Configure Gemini API (ONCE at startup)
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+
 # Custom CSS for Premium Modern Design v2.0
 st.markdown("""
 <style>
@@ -1074,22 +1077,15 @@ def main():
         # DEBUG: PROVE THIS TAB EXECUTES
         st.error("🚨 ENTERED AI INSIGHTS TAB 🚨")
         
-        # MINIMAL TEST: No containers, no CSS, no conditions
-        st.markdown("## 💬 Ask Your Financials (AI)")
+        # EXACT GEMINI TEST CODE
+        st.subheader("🧪 Gemini Test")
         
-        # Gemini AI test call
-        question = st.text_input("Ask a question about your financials", key="force_ai_test")
-        
-        if question:
-            try:
-                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                model = genai.GenerativeModel("gemini-1.5-flash")
-                response = model.generate_content("Say hello in one sentence")
-                st.success(response.text)
-            except Exception as e:
-                st.error(f"Gemini test failed: {e}")
-        else:
-            st.success("✅ Ask Your Financials block rendered")
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content("Say hello in one short sentence")
+            st.success(response.text)
+        except Exception as e:
+            st.error(f"Gemini test failed: {e}")
     
     with tabs[2]: render_sales(dfs, ai, ai_enabled)
     with tabs[3]: render_ar(dfs, ai, ai_enabled)
