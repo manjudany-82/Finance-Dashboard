@@ -105,6 +105,55 @@ def compute_financial_insights(df: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
+def calculate_health_score(dfs) -> int:
+    """Compatibility wrapper: compute integer health score (0-100) using
+    FinancialAnalyzer heuristics. Preserves previous behavior so tests
+    importing this symbol from `insights_core` continue to work.
+    """
+    score = 100
+    try:
+        ov = FinancialAnalyzer.analyze_overview(dfs)
+        profit_margin = ov.get('net_profit_margin', 0)
+
+        if profit_margin < 0:
+            score -= 20
+        elif profit_margin < 5:
+            score -= 10
+
+        cash_res = FinancialAnalyzer.analyze_cash(dfs)
+        runway = cash_res.get('runway_months', 999)
+        if runway < 3:
+            score -= 30
+        elif runway < 6:
+            score -= 15
+        elif runway < 12:
+            score -= 5
+
+        ar_res = FinancialAnalyzer.analyze_ar(dfs)
+        aging = ar_res.get('aging_table', pd.DataFrame())
+        if not aging.empty:
+            old_debt = aging[aging['AgingBucket'].str.contains('60|90|Over', regex=True, na=False)]['Amount'].sum()
+            total_ar = ar_res.get('total_ar', 1)
+            if total_ar > 0:
+                old_pct = (old_debt / total_ar) * 100
+                if old_pct > 30:
+                    score -= 15
+                elif old_pct > 15:
+                    score -= 8
+
+        sales_res = FinancialAnalyzer.analyze_sales(dfs)
+        trend = sales_res.get('trend', pd.DataFrame())
+        if not trend.empty and len(trend) >= 3:
+            recent_3 = trend.tail(3)['Revenue'].mean()
+            prev_3 = trend.iloc[-6:-3]['Revenue'].mean() if len(trend) >= 6 else recent_3
+            if recent_3 < prev_3 * 0.9:
+                score -= 10
+    except Exception:
+        pass
+
+    return max(0, min(100, score))
+
+
 def categorize_insights(all_insights, dfs):
     """Keep existing categorization helper but delegate to metrics if available."""
     try:
