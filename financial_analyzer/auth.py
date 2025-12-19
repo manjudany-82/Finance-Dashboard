@@ -71,17 +71,19 @@ def check_password():
 
     def password_entered():
         """Checks whether a password entered by the user is correct."""
-        # Safely get values from session state
-        username = st.session_state.get("username", "")
-        password = st.session_state.get("password", "")
+        # Get credentials from user input, trim whitespace
+        username = st.session_state.get("username", "").strip()
+        password = st.session_state.get("password", "").strip()
         
-        # Get credentials from secrets
-        users = st.secrets.get("users", {})
+        # Get credentials from Streamlit secrets
+        correct_username = st.secrets.get("APP_USERNAME", "").strip()
+        correct_password = st.secrets.get("APP_PASSWORD", "").strip()
         
-        if username in users and users[username] == hashlib.sha256(password.encode()).hexdigest():
+        # Compare credentials
+        if username == correct_username and password == correct_password:
             st.session_state["password_correct"] = True
             st.session_state["authenticated_user"] = username
-            # Don't store password
+            # Clear sensitive data from session
             if "password" in st.session_state:
                 del st.session_state["password"]
             if "username" in st.session_state:
@@ -94,6 +96,8 @@ def check_password():
             except Exception:
                 # If query params unavailable, ignore and rely on session state only
                 pass
+            # Trigger rerun to reflect authenticated state
+            st.rerun()
         else:
             st.session_state["password_correct"] = False
 
