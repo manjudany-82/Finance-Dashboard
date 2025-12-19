@@ -67,21 +67,21 @@ def _pick_primary_df(data):
                 return value
     return None
 
-# Gemini Q&A function using NEW SDK and real user question
+# Gemini Q&A function (OneDrive-only, model locked)
 def run_gemini_test():
     st.subheader("🧪 Gemini Test")
 
     user_question = st.text_input("Ask a question about your financials", key="ai_insights_question")
     submit = st.button("Submit", key="ai_insights_submit")
 
-    # Only allow OneDrive Excel data as the analysis source
+    # Data guard: AI may only use OneDrive-loaded dataframe
     df = st.session_state.get("df")
 
     if not submit:
         return
 
     if df is None or getattr(df, "empty", True):
-        st.warning("⚠️ No financial data loaded from OneDrive. Please check the Excel link.")
+        st.warning("This question cannot be answered because the OneDrive Excel data is not loaded.")
         return
 
     normalized_q = (user_question or "").strip()
@@ -99,7 +99,7 @@ def run_gemini_test():
     try:
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
-        # Build concise, OneDrive-only context
+        # Build deterministic, OneDrive-only context (no dashboard or cached data)
         row_count = len(df)
         cols = list(df.columns)
         numeric_totals = df.select_dtypes(include="number").sum(numeric_only=True)
@@ -115,9 +115,9 @@ def run_gemini_test():
 
         prompt = (
             "SYSTEM:\n"
-            "You are a professional financial analyst.\n"
+            "You are a financial analyst. Answer ONLY using the provided Excel data. If the answer cannot be derived from the data, say so explicitly.\n"
             "You MUST base your analysis ONLY on the OneDrive Excel data provided below.\n"
-            "Do NOT use dashboard data, assumptions, or prior knowledge.\n"
+            "Do NOT use dashboard data, cached summaries, prior AI responses, or assumptions.\n"
             "If information is missing, explicitly say so.\n\n"
             "DATA SOURCE:\n"
             "OneDrive Excel (static link)\n\n"
@@ -145,6 +145,8 @@ def run_gemini_test():
         msg = str(e)
         if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
             st.warning("⚠️ AI is temporarily busy due to usage limits.\nPlease wait a minute and try again.")
+        elif "404" in msg:
+            st.warning("⚠️ AI model is unavailable. Please contact support if this persists.")
         else:
             st.warning(f"Gemini error: {msg}")
 
