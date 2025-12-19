@@ -57,6 +57,16 @@ from financial_analyzer.ai_insights_tab import render_ai_insights
 from financial_analyzer.auth import check_password
 import time
 
+# Select a primary dataframe from loaded data (first non-empty DataFrame found)
+def _pick_primary_df(data):
+    if isinstance(data, pd.DataFrame):
+        return data
+    if isinstance(data, dict):
+        for value in data.values():
+            if isinstance(value, pd.DataFrame) and not value.empty:
+                return value
+    return None
+
 # Gemini Q&A function using NEW SDK and real user question
 def run_gemini_test():
     st.subheader("🧪 Gemini Test")
@@ -64,19 +74,17 @@ def run_gemini_test():
     user_question = st.text_input("Ask a question about your financials", key="ai_insights_question")
     submit = st.button("Submit", key="ai_insights_submit")
 
+    df = st.session_state.get("df")
+
     if not submit:
+        return
+
+    if df is None or getattr(df, "empty", True):
+        st.warning("No financial data found. Please upload or load your data.")
         return
 
     try:
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
-
-        if "df" not in globals() or "df" not in locals():
-            st.warning("⚠️ No financial data found (df is undefined). Please upload or load your data.")
-            return
-
-        if df.empty:
-            st.warning("⚠️ Your financial data is empty. Please upload data before asking questions.")
-            return
 
         df_as_csv = df.head(50).to_csv(index=False)
 
@@ -1030,6 +1038,7 @@ def main():
                     if uploaded_file:
                          try:
                             st.session_state.data = ExcelHandler.load_data(source="upload", file_path=uploaded_file)
+                            st.session_state.df = _pick_primary_df(st.session_state.data)
                             if st.session_state.data:
                                 st.success("File Processed Successfully")
                          except Exception as e:
@@ -1038,6 +1047,7 @@ def main():
                         st.error("Please upload a file first.")
                 else:
                     st.session_state.data = ExcelHandler.load_data(source="onedrive", onedrive_config={'url': onedrive_url, 'token': onedrive_token})
+                    st.session_state.df = _pick_primary_df(st.session_state.data)
                     
                 if st.session_state.data and source_type != "Upload Excel File":
                     st.success("Data Loaded Successfully")
