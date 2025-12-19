@@ -47,7 +47,7 @@ st.experimental_set_query_params = _shim_set_query_params
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import google.generativeai as genai
+from google import genai
 from financial_analyzer.microsoft_excel import ExcelHandler
 from financial_analyzer.analysis_modes import FinancialAnalyzer
 from financial_analyzer.forecast_engine import ForecastEngine
@@ -1090,11 +1090,13 @@ def main():
                 st.warning("⚠️ GEMINI_API_KEY not configured in Streamlit secrets")
             else:
                 try:
-                    # Configure Gemini with API key (stable v1 API)
-                    genai.configure(api_key=api_key)
-                    # Use stable v1 model
-                    model = genai.GenerativeModel("models/gemini-1.5-pro-002")
-                    response = model.generate_content("Say hello in one sentence")
+                    # Initialize Gemini client (new google-genai SDK v1 API)
+                    client = genai.Client(api_key=api_key)
+                    # Use stable v1 model with new SDK
+                    response = client.models.generate_content(
+                        model="gemini-1.5-pro",
+                        contents="Say hello in one sentence"
+                    )
                     st.success("✅ Gemini connectivity test passed!")
                     st.write("**Test Response:**")
                     st.write(response.text)
