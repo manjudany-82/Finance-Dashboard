@@ -8,6 +8,39 @@ if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
 import streamlit as st
+
+# DEBUG: Check if Streamlit secrets are loaded
+st.write("🔐 DEBUG SECRETS:")
+st.write(st.secrets)
+st.stop()
+
+# DEBUG: Verify this is the actual entrypoint
+st.error("🚨 ROOT dashboard.py ENTRYPOINT LOADED 🚨")
+
+import warnings
+
+# Suppress deprecation warnings from any dependency still calling experimental query APIs
+warnings.filterwarnings("ignore", message=".*experimental_get_query_params.*", category=DeprecationWarning)
+
+# Compat shim: some dependencies may still call deprecated query param APIs; provide
+# no-warning aliases that delegate to the new st.query_params to silence warnings.
+def _shim_get_query_params():
+    try:
+        return st.query_params
+    except Exception:
+        return {}
+
+
+def _shim_set_query_params(**kwargs):
+    try:
+        st.query_params.clear()
+        st.query_params.update(kwargs)
+    except Exception:
+        pass
+
+
+st.experimental_get_query_params = _shim_get_query_params
+st.experimental_set_query_params = _shim_set_query_params
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -875,7 +908,7 @@ def collapse_sidebar():
 def main():
     # Handle URL-driven actions (logout / expand) before rendering
     try:
-        params = st.experimental_get_query_params()
+        params = st.query_params  # new query params API
     except Exception:
         params = {}
 
@@ -1031,11 +1064,25 @@ def main():
     
     # --- TABS NAVIGATION ---
     # Replaces the old dropdown menu logic
+    st.error("🚨 ABOUT TO CREATE TABS 🚨")
+    
     tabs_list = ["Overview", "🤖 AI Insights", "Sales Trends", "AR Collections", "AP Management", "Cash Flow", "Profitability", "Spending", "Forecast"]
     tabs = st.tabs(tabs_list)
     
+    st.error("🚨 TABS CREATED 🚨")
+    
     with tabs[0]: render_overview(dfs, ai, ai_enabled)
-    with tabs[1]: render_ai_insights(dfs, ai, ai_enabled)
+    
+    # AI INSIGHTS TAB - Inline rendering to preserve all content in order
+    with tabs[1]:
+        # DEBUG: PROVE THIS TAB EXECUTES
+        st.error("🚨 ENTERED AI INSIGHTS TAB 🚨")
+        
+        # MINIMAL TEST: No containers, no CSS, no conditions
+        st.markdown("## 💬 Ask Your Financials (AI)")
+        st.text_input("Ask a question about your financials", key="force_ai_test")
+        st.success("✅ Ask Your Financials block rendered")
+    
     with tabs[2]: render_sales(dfs, ai, ai_enabled)
     with tabs[3]: render_ar(dfs, ai, ai_enabled)
     with tabs[4]: render_ap(dfs, ai, ai_enabled)

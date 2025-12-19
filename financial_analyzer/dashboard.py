@@ -1,4 +1,24 @@
 import streamlit as st
+
+# Compat shim: silence any third-party calls to deprecated query param APIs by delegating
+# to the new st.query_params. This avoids startup warnings from dependency imports.
+def _shim_get_query_params():
+    try:
+        return st.query_params
+    except Exception:
+        return {}
+
+
+def _shim_set_query_params(**kwargs):
+    try:
+        st.query_params.clear()
+        st.query_params.update(kwargs)
+    except Exception:
+        pass
+
+
+st.experimental_get_query_params = _shim_get_query_params
+st.experimental_set_query_params = _shim_set_query_params
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -869,7 +889,7 @@ def expand_sidebar():
 def main():
     # Handle URL-driven actions (logout / expand) before rendering
     try:
-        params = st.experimental_get_query_params()
+        params = st.query_params
     except Exception:
         params = {}
 
@@ -881,7 +901,8 @@ def main():
     if params.get('expand', [None])[0] == '1':
         st.session_state['sidebar_collapsed'] = False
         try:
-            st.experimental_set_query_params()
+            # Clear the flag using the new query params API
+            st.query_params.clear()
         except Exception:
             pass
         st.experimental_rerun()

@@ -12,9 +12,9 @@ def logout():
         del st.session_state["password_correct"]
     if "authenticated_user" in st.session_state:
         del st.session_state["authenticated_user"]
-    # Clear persistent auth token from URL
+    # Clear persistent auth token from URL using new query params API
     try:
-        st.experimental_set_query_params()
+        st.query_params.clear()
     except Exception:
         pass
     st.rerun()
@@ -57,7 +57,7 @@ def check_password():
 
     # Check for persistent token in URL query params
     try:
-        params = st.experimental_get_query_params()
+        params = st.query_params
         token = params.get('auth', [None])[0]
         if token:
             user_from_token = _verify_token(token)
@@ -89,7 +89,8 @@ def check_password():
             # Create a signed token and add to URL so refreshes persist login
             try:
                 token = _make_token(username)
-                st.experimental_set_query_params(auth=token)
+                # Persist auth token via new query params API
+                st.query_params['auth'] = token
             except Exception:
                 # If query params unavailable, ignore and rely on session state only
                 pass
