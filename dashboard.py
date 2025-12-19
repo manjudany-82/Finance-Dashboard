@@ -9,11 +9,6 @@ if str(repo_root) not in sys.path:
 
 import streamlit as st
 
-# DEBUG: Check if Streamlit secrets are loaded
-st.write("🔐 DEBUG SECRETS:")
-st.write(st.secrets)
-st.stop()
-
 # DEBUG: Verify this is the actual entrypoint
 st.error("🚨 ROOT dashboard.py ENTRYPOINT LOADED 🚨")
 
