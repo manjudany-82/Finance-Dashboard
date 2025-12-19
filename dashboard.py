@@ -1090,10 +1090,10 @@ def main():
                 st.warning("⚠️ GEMINI_API_KEY not configured in Streamlit secrets")
             else:
                 try:
-                    # Configure Gemini with API key (v1 stable SDK)
+                    # Configure Gemini with API key (stable v1 API)
                     genai.configure(api_key=api_key)
-                    # Hard test call - using v1beta supported model
-                    model = genai.GenerativeModel("models/gemini-1.0-pro")
+                    # Use stable v1 model
+                    model = genai.GenerativeModel("models/gemini-1.5-pro-002")
                     response = model.generate_content("Say hello in one sentence")
                     st.success("✅ Gemini connectivity test passed!")
                     st.write("**Test Response:**")
