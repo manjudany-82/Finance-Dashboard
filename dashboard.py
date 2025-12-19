@@ -65,8 +65,8 @@ def run_gemini_test():
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
         
         response = client.models.generate_content(
-            model="models/gemini-1.5-flash",
-            contents="Say hello in one short sentence."
+            model="gemini-2.0-flash",
+            contents="Say hello in one sentence"
         )
         
         st.success(response.text)
