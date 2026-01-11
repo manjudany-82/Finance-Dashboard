@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from dashboard import compute_dashboard_insights
-from financial_analyzer.ai_insights_tab import calculate_health_score
+from financial_analyzer.llm_insights import calculate_health_score
 
 
 def test_compute_dashboard_insights_basic():

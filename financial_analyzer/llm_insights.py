@@ -4,12 +4,14 @@ import re
 import logging
 import pandas as pd
 from dotenv import load_dotenv
-import streamlit as st
+import functools
+from financial_analyzer.analysis_modes import FinancialAnalyzer
 
-try:
-    from google import genai
-except Exception:
-    genai = None
+# Avoid importing Streamlit or google-genai at module import time to prevent
+# import-time UI side-effects and hard dependency wiring. The LLM provider
+# integration has been disabled in this sanitized commit; runtime-only
+# rendering functions may import Streamlit when needed.
+genai = None
 
 load_dotenv()
 
@@ -23,75 +25,13 @@ if not logger.handlers:
 logger.setLevel(logging.INFO)
 
 
-# Optimized cached function with better TTL and hash-based caching
-# TTL=7200 (2 hours) for better cache reuse across sessions
-@st.cache_data(ttl=7200, show_spinner=False, hash_funcs={dict: lambda x: str(sorted(x.items()))})
+# LLM provider disabled in this sanitized commit. The cached_generate_content
+# function is retained as a stub so higher-level code can detect that the
+# provider is not available and fall back to rule-based insights.
+@functools.lru_cache(maxsize=128)
 def cached_generate_content(api_key_hash, model_name, prompt):
-    """Call the provider and return a list of short insights.
-
-    Uses API key hash for security and better caching.
-    Optimized parser for faster response extraction.
-    """
-    if genai is None:
-        logger.error("google-genai library not available")
-        raise RuntimeError("google-genai library not available")
-
-    # Reconstruct actual API key from environment (hash is for cache key only)
-    api_key = os.getenv('GEMINI_API_KEY')
-    logger.info(f"LLM request: model={model_name} prompt_len={len(prompt)}")
-    client = genai.Client(api_key=api_key)
-    try:
-        response = client.models.generate_content(model=model_name, contents=prompt)
-    except Exception as e:
-        logger.error(f"LLM call error: {e}")
-        raise
-
-    # Defensive extraction of text
-    text = ''
-    try:
-        text = getattr(response, 'text', '') or ''
-    except Exception:
-        text = ''
-    if not text:
-        try:
-            # try candidate path
-            cand = getattr(response, 'candidates', None)
-            if cand and len(cand) > 0:
-                first = cand[0]
-                text = getattr(first, 'content', None)
-                if isinstance(text, list) and len(text) > 0:
-                    # content items may have .text
-                    item = text[0]
-                    text = getattr(item, 'text', '') or str(item)
-                else:
-                    text = str(first)
-        except Exception:
-            text = str(response)
-    text = (text or '').strip()
-
-    # Optimized bullet extraction with single-pass parsing
-    lines = text.splitlines()
-    bullets = []
-    bullet_pattern = re.compile(r'^[\-•\*]\s*(.+)$')
-    
-    for ln in lines:
-        ln = ln.strip()
-        if not ln:
-            continue
-        match = bullet_pattern.match(ln)
-        if match:
-            bullets.append(match.group(1).strip())
-        elif len(ln) < 200 and not bullets:  # Fallback for non-bullet format
-            bullets.append(ln)
-    
-    # Fast fallback: split sentences if no bullets found
-    if not bullets:
-        bullets = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
-    
-    # Normalize whitespace in single pass
-    final = [re.sub(r'\s+', ' ', b) for b in bullets if b][:5]  # Take max 5
-    logger.info(f"LLM response (model={model_name}): extracted {len(final)} insights")
-    return {"bullets": final, "raw": text}
+    logger.info("LLM provider disabled — cached_generate_content called")
+    raise RuntimeError("LLM provider disabled in sanitized branch")
 
 class AIAnalyst:
     """
@@ -107,7 +47,7 @@ class AIAnalyst:
         self.last_raw = None
         self.last_error = None
         if not genai:
-            logger.warning("google-genai library not available.")
+            logger.warning("LLM provider disabled or not configured.")
         self.quota_exhausted = False
 
 
@@ -517,3 +457,53 @@ Provide 3 concise actionable insights as bullet points."""
             insights.append("Review full report for details")
             
         return insights[:3]
+
+
+def calculate_health_score(dfs):
+    """Calculate overall business health score (0-100) - rule-based evaluation."""
+    score = 100
+    try:
+        # Overview metrics
+        ov = FinancialAnalyzer.analyze_overview(dfs)
+        profit_margin = ov.get('net_profit_margin', 0)
+        
+        # Deduct points for poor profitability
+        if profit_margin < 0:
+            score -= 20
+        elif profit_margin < 5:
+            score -= 10
+        
+        # Cash flow analysis
+        cash_res = FinancialAnalyzer.analyze_cash(dfs)
+        runway = cash_res.get('runway_months', 999)
+        if runway < 3:
+            score -= 30
+        elif runway < 6:
+            score -= 15
+        elif runway < 12:
+            score -= 5
+        
+        # AR aging
+        ar_res = FinancialAnalyzer.analyze_ar(dfs)
+        aging = ar_res.get('aging_table', pd.DataFrame())
+        if not aging.empty:
+            old_debt = aging[aging['AgingBucket'].str.contains('60|90|Over', regex=True, na=False)]['Amount'].sum()
+            total_ar = ar_res.get('total_ar', 1)
+            if total_ar > 0:
+                old_pct = (old_debt / total_ar) * 100
+                if old_pct > 30:
+                    score -= 15
+                elif old_pct > 15:
+                    score -= 8
+        
+        # Sales trend
+        sales_res = FinancialAnalyzer.analyze_sales(dfs)
+        trend = sales_res.get('trend', pd.DataFrame())
+        if not trend.empty and len(trend) >= 3:
+            recent_3 = trend.tail(3)['Revenue'].mean()
+            prev_3 = trend.iloc[-6:-3]['Revenue'].mean() if len(trend) >= 6 else recent_3
+            if recent_3 < prev_3 * 0.9:  # 10% decline
+                score -= 10
+    except Exception:
+        pass
+    return max(0, min(100, score))

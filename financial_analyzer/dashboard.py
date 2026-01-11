@@ -27,244 +27,56 @@ from financial_analyzer.analysis_modes import FinancialAnalyzer
 from financial_analyzer.forecast_engine import ForecastEngine
 from financial_analyzer.llm_insights import AIAnalyst
 from financial_analyzer.render_layouts import render_overview, render_sales, render_ar, render_ap, render_cash, render_profit, render_forecast, render_spending
-from financial_analyzer.ai_insights_tab import render_ai_insights
+
+# Runtime-only AI insights renderer (rule-based fallback). This avoids import-time
+# Streamlit/genai wiring and preserves a simple AI fallback behavior.
+def render_ai_insights(dfs, ai, ai_enabled=False):
+    import streamlit as st
+    st.header("AI Insights (Rule-based fallback)")
+    if not dfs:
+        st.info("Load data from the sidebar to enable AI insights.")
+        return
+    analyst = ai or AIAnalyst()
+    try:
+        primary = None
+        if isinstance(dfs, dict):
+            # pick first non-empty
+            for v in dfs.values():
+                if hasattr(v, 'empty') and not v.empty:
+                    primary = v
+                    break
+        elif hasattr(dfs, 'empty'):
+            primary = dfs
+        bullets = analyst.generate_fallback_insights("Overview", {})
+        for b in bullets:
+            st.markdown(f"- {b}")
+    except Exception:
+        st.info("Rule-based insights currently unavailable.")
 from financial_analyzer.auth import check_password
 import os
 import time
 
-# Page Config
-st.set_page_config(
-    page_title="Enterprise Financial Dashboard",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+def _apply_page_config():
+    import streamlit as st
+    try:
+        st.set_page_config(
+            page_title="Enterprise Financial Dashboard",
+            page_icon="📊",
+            layout="wide",
+            initial_sidebar_state="expanded"
+        )
+    except Exception:
+        # set_page_config may only be called once in a Streamlit session;
+        # swallow errors when called multiple times or outside Streamlit.
+        pass
 
-# Custom CSS for Premium Modern Design v2.0
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-    
-    /* ========== DESIGN SYSTEM ========== */
-    :root {
-        /* Colors */
-        --bg-primary: #0A0E27;
-        --bg-secondary: #0F1535;
-        --card-bg: rgba(255, 255, 255, 0.03);
-        --card-border: rgba(255, 255, 255, 0.08);
-        
-        /* Accents */
-        --accent-primary: #6366F1;
-        --accent-success: #10B981;
-        --accent-warning: #F59E0B;
-        --accent-danger: #EF4444;
-        --accent-info: #3B82F6;
-        
-        /* Text */
-        --text-primary: #F9FAFB;
-        --text-secondary: #9CA3AF;
-        --text-muted: #6B7280;
-        
-        /* Effects */
-        --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
-        --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
-        --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
-        --blur-glass: blur(16px);
-    }
-    
-    /* ========== GLOBAL STYLES ========== */
-    .stApp {
-        background: linear-gradient(135deg, #0A0E27 0%, #0F1535 100%);
-        color: var(--text-primary);
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    }
-    
-    /* ========== TYPOGRAPHY ========== */
-    h1 {
-        font-weight: 700 !important;
-        font-size: 2rem !important;
-        letter-spacing: -0.02em !important;
-        background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-primary) 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        margin-bottom: 1rem !important;
-    }
-    
-    h2 {
-        font-weight: 600 !important;
-        font-size: 1.5rem !important;
-        letter-spacing: -0.01em !important;
-        color: var(--text-primary) !important;
-        margin-bottom: 0.75rem !important;
-    }
-    
-    h3 {
-        font-weight: 600 !important;
-        font-size: 1.1rem !important;
-        color: var(--text-primary) !important;
-        margin-bottom: 0.5rem !important;
-    }
-    
-    h4, h5, h6 {
-        font-weight: 600 !important;
-        color: var(--text-primary) !important;
-    }
-    
-    /* Fix for markdown headings */
-    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, 
-    .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
-        color: var(--text-primary) !important;
-    }
-    
-    /* General text */
-    p, span, div, label {
-        color: var(--text-primary) !important;
-    }
-    
-    /* ========== METRIC CARDS ========== */
-    [data-testid="stMetric"] {
-        background: var(--card-bg);
-        backdrop-filter: var(--blur-glass);
-        -webkit-backdrop-filter: var(--blur-glass);
-        border: 1px solid var(--card-border);
-        border-radius: 12px;
-        padding: 16px;
-        box-shadow: var(--shadow-md);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    
-    [data-testid="stMetric"]:hover {
-        transform: translateY(-4px);
-        box-shadow: var(--shadow-lg);
-        border-color: rgba(99, 102, 241, 0.3);
-    }
-    
-    [data-testid="stMetricValue"] {
-        font-size: 1.5rem !important;
-        font-weight: 700 !important;
-        color: var(--text-primary) !important;
-        line-height: 1.2 !important;
-        word-wrap: break-word !important;
-        overflow-wrap: break-word !important;
-    }
-    
-    [data-testid="stMetricLabel"] {
-        font-size: 0.8rem !important;
-        font-weight: 500 !important;
-        color: var(--text-secondary) !important;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        margin-bottom: 6px !important;
-    }
-    
-    [data-testid="stMetricDelta"] {
-        font-size: 0.875rem !important;
-        font-weight: 600 !important;
-    }
-    
-    /* ========== CONTAINERS ========== */
-    .element-container {
-        margin-bottom: 1rem;
-    }
-    
-    /* Block containers */
-    .block-container {
-        padding-top: 0.5rem !important;
-        padding-bottom: 1rem !important;
-        max-width: 100% !important;
-        padding-left: 1.5rem !important;
-        padding-right: 1.5rem !important;
-    }
-    
-    /* Section spacing */
-    .stMarkdown hr {
-        margin: 1.5rem 0 !important;
-        border: none !important;
-        border-top: 1px solid var(--card-border) !important;
-        opacity: 0.5 !important;
-    }
-    
-    /* Subheader spacing */
-    .stMarkdown h3 {
-        margin-top: 1.5rem !important;
-        margin-bottom: 0.75rem !important;
-    }
-    
-    /* ========== HEADER FIX ========== */
-    /* Hide the default Streamlit header */
-    header[data-testid="stHeader"] {
-        background-color: transparent !important;
-        background: transparent !important;
-    }
-    
-    /* Remove top toolbar background */
-    .st-emotion-cache-18ni7ap,
-    .st-emotion-cache-1dp5vir {
-        background: transparent !important;
-    }
-    
-    /* ========== TABS ========== */
-    .stTabs {
-        background: transparent;
-        margin-bottom: 2rem;
-        position: relative;
-    }
-    
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 12px;
-        background: var(--card-bg);
-        backdrop-filter: var(--blur-glass);
-        border: 1px solid var(--card-border);
-        border-radius: 12px;
-        padding: 8px;
-        overflow-x: auto;
-        overflow-y: hidden;
-        scroll-behavior: smooth;
-        scrollbar-width: none; /* Firefox */
-        -ms-overflow-style: none; /* IE/Edge */
-        padding-left: 50px;
-        padding-right: 50px;
-    }
-    
-    .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {
-        display: none; /* Chrome/Safari */
-    }
-    
-    /* Tab navigation arrows */
-    .tab-nav-arrow {
-        position: absolute;
-        top: 50%;
-        transform: translateY(-50%);
-        z-index: 100;
-        background: linear-gradient(135deg, #667EEA 0%, #764BA2 100%);
-        border: 2px solid rgba(255, 255, 255, 0.2);
-        border-radius: 8px;
-        width: 40px;
-        height: 40px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        color: white;
-        font-size: 1.2rem;
-        font-weight: bold;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-        user-select: none;
-    }
-    
-    .tab-nav-arrow:hover {
-        background: linear-gradient(135deg, #7C8AEE 0%, #8B5CF6 100%);
-        transform: translateY(-50%) scale(1.1);
-        box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
-    }
-    
-    .tab-nav-arrow.left {
-        left: 8px;
-    }
-    
-    .tab-nav-arrow.right {
+def _apply_ui_css():
+    import streamlit as st
+    st.markdown("""
+    <style>
+    /* UI CSS moved to runtime to avoid import-time Streamlit calls */
+    </style>
+    """, unsafe_allow_html=True)
         right: 8px;
     }
     
@@ -887,6 +699,15 @@ def expand_sidebar():
     st.experimental_rerun()
 
 def main():
+    # Apply runtime UI styles (avoids import-time Streamlit calls)
+    try:
+        _apply_ui_css()
+    except Exception:
+        pass
+    try:
+        _apply_page_config()
+    except Exception:
+        pass
     # Handle URL-driven actions (logout / expand) before rendering
     try:
         params = st.query_params
