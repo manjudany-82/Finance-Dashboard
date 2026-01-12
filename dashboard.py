@@ -17,8 +17,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# DEBUG: Verify this is the actual entrypoint
-st.error("🚨 ROOT dashboard.py ENTRYPOINT LOADED 🚨")
+# (debug banner removed)
 
 import warnings
 
