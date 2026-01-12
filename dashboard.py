@@ -1058,24 +1058,18 @@ def main():
     
     # --- TABS NAVIGATION ---
     # Replaces the old dropdown menu logic
-    st.error("🚨 ABOUT TO CREATE TABS 🚨")
     
     tabs_list = ["Overview", "🤖 AI Insights", "Sales Trends", "AR Collections", "AP Management", "Cash Flow", "Profitability", "Spending", "Forecast"]
     tabs = st.tabs(tabs_list)
     
-    st.error("🚨 TABS CREATED 🚨")
+    
     
     with tabs[0]: render_overview(dfs, ai, ai_enabled)
     
     # AI INSIGHTS TAB - Inline rendering to preserve all content in order
     with tabs[1]:
-        # DEBUG: PROVE THIS TAB EXECUTES
-        st.error("🚨 ENTERED AI INSIGHTS TAB 🚨")
-        
-        # MINIMAL TEST: No containers, no CSS, no conditions
+        # AI Insights tab (rendered by package)
         st.markdown("## 💬 Ask Your Financials (AI)")
-        st.text_input("Ask a question about your financials", key="force_ai_test")
-        st.success("✅ Ask Your Financials block rendered")
     
     with tabs[2]: render_sales(dfs, ai, ai_enabled)
     with tabs[3]: render_ar(dfs, ai, ai_enabled)
