@@ -22,16 +22,34 @@ def check_password():
     if "password_correct" not in st.session_state:
         st.session_state.password_correct = False
 
-    # Support both a proper dict and inline TOML map string formats.
+    # Support several possible placements/formats for users in st.secrets:
+    # - Nested table: [auth] users = { ... }  -> st.secrets["auth"]["users"]
+    # - Table form: [auth.users] demo = "..." -> st.secrets["auth.users"]
+    # - Top-level: users = { ... } -> st.secrets["users"]
+    # - Inline/text formats (parseable) stored under those keys.
     users_entry = None
     try:
-        users_entry = st.secrets.get("auth", {}).get("users")
+        secrets = st.secrets
     except Exception:
-        # Fallback to direct indexing if necessary
-        try:
-            users_entry = st.secrets["auth"]["users"]
-        except Exception:
-            users_entry = None
+        secrets = {}
+
+    # 1) nested table: st.secrets["auth"]["users"]
+    auth_val = secrets.get("auth") if isinstance(secrets, dict) else None
+    if isinstance(auth_val, dict) and "users" in auth_val:
+        users_entry = auth_val.get("users")
+    # 2) table form: st.secrets["auth.users"]
+    elif isinstance(secrets, dict) and "auth.users" in secrets:
+        users_entry = secrets.get("auth.users")
+    # 3) top-level users key
+    elif isinstance(secrets, dict) and "users" in secrets:
+        users_entry = secrets.get("users")
+    # 4) maybe auth itself contains an inline map string
+    elif isinstance(auth_val, str):
+        parsed = _parse_inline_toml_map(auth_val)
+        if parsed:
+            users_entry = parsed
+    else:
+        users_entry = None
 
     if isinstance(users_entry, dict):
         users = users_entry
