@@ -911,6 +911,19 @@ def main():
     if not check_password():
         st.stop()  # Stop execution if not authenticated
     
+    # Auto-load configured OneDrive Excel into session (preserve auth)
+    if not st.session_state.get('data'):
+        try:
+            st.session_state.data = ExcelHandler.load_data(
+                source="onedrive",
+                onedrive_config={'url': DEFAULT_ONEDRIVE_LINK, 'token': os.getenv('ONEDRIVE_TOKEN', '')}
+            )
+            if st.session_state.data:
+                st.session_state['data_loaded_at'] = time.time()
+        except Exception:
+            # If OneDrive load fails, continue and allow user to click Reload
+            pass
+    
     # --- SIDEBAR ---
     with st.sidebar:
         st.title("FIN ANALYTICS 🚀")
@@ -956,43 +969,22 @@ def main():
         
         st.divider()
 
-        # Source Selection
-        # Default to OneDrive if link is present
-        index_default = 1 if DEFAULT_ONEDRIVE_LINK and "http" in DEFAULT_ONEDRIVE_LINK else 0
-        source_type = st.selectbox("Source", ["Upload Excel File", "OneDrive (Excel Link)"], index=index_default)
-        
-        onedrive_url = ""
-        onedrive_token = ""
-        uploaded_file = None
-        
-        if source_type == "OneDrive (Excel Link)":
-            onedrive_url = st.text_input("One Drive Link", value=DEFAULT_ONEDRIVE_LINK)
-            st.info("Ensure the app has permissions or paste a direct public link if applicable.")
-            onedrive_token = "MOCK_TOKEN" 
-        elif source_type == "Upload Excel File":
-             uploaded_file = st.file_uploader("Upload your financial data", type=['xlsx'])
-        
-        if st.button("Load Data", type="primary"):
-            with st.spinner("Processing Financial Data..."):
-                if source_type == "Upload Excel File":
-                    if uploaded_file:
-                         try:
-                            st.session_state.data = ExcelHandler.load_data(source="upload", file_path=uploaded_file)
-                            if st.session_state.data:
-                                st.success("File Processed Successfully")
-                         except Exception as e:
-                            st.error(f"Error processing file: {e}")
-                    else:
-                        st.error("Please upload a file first.")
-                else:
-                    st.session_state.data = ExcelHandler.load_data(source="onedrive", onedrive_config={'url': onedrive_url, 'token': onedrive_token})
-                    
-                if st.session_state.data and source_type != "Upload Excel File":
-                    st.success("Data Loaded Successfully")
-                    # record a timestamp so AI insight cache can be invalidated on new data
-                    st.session_state['data_loaded_at'] = time.time()
-                elif not st.session_state.data and source_type != "Upload Excel File":
-                    st.error("Failed to load data")
+        # Source Selection — fixed to configured OneDrive file
+        st.markdown("**Data Source:** OneDrive (configured)")
+        st.caption("Auto-loading from configured OneDrive file.")
+
+        if st.button("Reload Data from OneDrive"):
+            with st.spinner("Reloading data from OneDrive..."):
+                try:
+                    st.session_state.data = ExcelHandler.load_data(
+                        source="onedrive",
+                        onedrive_config={'url': DEFAULT_ONEDRIVE_LINK, 'token': os.getenv('ONEDRIVE_TOKEN', '')}
+                    )
+                    if st.session_state.data:
+                        st.success("Data Loaded Successfully")
+                        st.session_state['data_loaded_at'] = time.time()
+                except Exception as e:
+                    st.error(f"Error loading data from OneDrive: {e}")
 
         st.divider()
         st.caption("Enterprise Edition v1.1.0")
