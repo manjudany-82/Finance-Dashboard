@@ -4,7 +4,7 @@ def check_password():
     if "password_correct" not in st.session_state:
         st.session_state.password_correct = False
 
-    users = st.secrets.get("auth", {}).get("users", {})
+    users = st.secrets["auth"]["users"]
 
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
